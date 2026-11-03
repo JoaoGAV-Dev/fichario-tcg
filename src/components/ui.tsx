@@ -52,10 +52,10 @@ export function Chip({ label, active, onPress }: { label: string; active?: boole
 }
 
 /** "+12,4%" verde / "-3,1%" vermelho / "sem histórico" cinza */
-export function ChangePill({ pct, style }: { pct: number | null; style?: StyleProp<TextStyle> }) {
+export function ChangePill({ pct, style, compact }: { pct: number | null; style?: StyleProp<TextStyle>; compact?: boolean }) {
   const t = useTheme();
   const color = pct === null ? t.muted : pct > 0 ? t.up : pct < 0 ? t.down : t.textSecondary;
-  return <Text style={[styles.pill, { color }, style]}>{pctLabel(pct)}</Text>;
+  return <Text style={[styles.pill, { color }, style]}>{pct === null && compact ? '—' : pctLabel(pct)}</Text>;
 }
 
 export function Loading({ label }: { label?: string }) {

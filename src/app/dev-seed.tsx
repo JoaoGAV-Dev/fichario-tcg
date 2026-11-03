@@ -7,7 +7,7 @@ import { ScrollView } from 'react-native';
 import { Txt } from '@/components/ui';
 import { addToCollection, ensureCard } from '@/lib/collection';
 import { cardsMissingToday, getCardSnapshots, refreshCards } from '@/lib/prices';
-import { cachedMypPrice, getFx, intlPriceBRL, refreshMypSet, refreshTcgHistory } from '@/lib/sources/fast';
+import { cachedMypPrice, getFx, intlPriceBRL, refreshMypSet, refreshTcgHistory, tcgDebug } from '@/lib/sources/fast';
 
 const SAMPLE = ['sv03-125', 'me01-086', 'sv03-124', 'swsh12-186'];
 
@@ -28,7 +28,7 @@ export default function DevSeed() {
           say(`  MYP coleção: ${n} cartas em ${Date.now() - t1}ms · cache ${await cachedMypPrice(c)}`);
           const t2 = Date.now();
           const w = await refreshTcgHistory(c);
-          say(`  TCGplayer: ${w} semanas em ${Date.now() - t2}ms`);
+          say(`  TCGplayer: ${w} semanas em ${Date.now() - t2}ms · id ${tcgDebug.id} · http ${tcgDebug.status}`);
         } catch (e) {
           say(`${id}: ERRO ${String(e).slice(0, 120)}`);
         }

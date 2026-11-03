@@ -207,13 +207,13 @@ export default function CardScreen() {
               <Txt style={[styles.tableHead, { fontWeight: '700' }]}>{label}</Txt>
               {ch.map((c) => (
                 <Txt key={c.key} style={styles.tableCell}>
-                  <ChangePill pct={c.pct} />{c.estimated && c.pct !== null ? <Txt variant="small">*</Txt> : null}
+                  <ChangePill pct={c.pct} compact />{c.estimated && c.pct !== null ? <Txt variant="small">*</Txt> : null}
                 </Txt>
               ))}
             </View>
           ))}
           <Txt variant="small">
-            Liga e MYP: preço brasileiro coletado pelo app. EUA: histórico real do TCGplayer (versão em inglês da carta).
+            "—" = ainda sem preço daquela época. Liga e MYP: preço brasileiro coletado pelo app. EUA: histórico real do TCGplayer (versão em inglês da carta).
             {hasEstimate ? ' * Estimado: preço brasileiro de hoje × a variação da carta nos EUA no período, até haver coleta brasileira tão antiga.' : ''}
           </Txt>
         </Panel>

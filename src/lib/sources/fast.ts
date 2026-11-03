@@ -190,6 +190,9 @@ export async function cachedMypPrice(card: Pick<DbCard, 'set_abbr' | 'local_id' 
 // ------------------------------------------------------------------ TCGplayer (histórico de 1 ano)
 const TCG_VARIANT: Record<string, string> = { normal: 'Normal', holo: 'Holofoil', reverse: 'Reverse Holofoil' };
 
+/** Última tentativa (para o diagnóstico). */
+export const tcgDebug: { id?: number | null; status?: number | string; result?: number } = {};
+
 async function tcgplayerId(card: DbCard): Promise<number | null> {
   if (card.tcgplayer_id) return card.tcgplayer_id;
   const en = await getCard(card.id, 'en').catch(() => null);
@@ -212,10 +215,28 @@ export async function refreshTcgHistory(card: DbCard, variant = 'normal'): Promi
     `SELECT MAX(captured_on) AS d FROM snapshots WHERE card_id = ? AND source = 'tcgplayer' AND raw LIKE '%"weekly":true%'`, [card.id]);
   if (last?.d && (Date.parse(todayBR()) - Date.parse(last.d)) / 86_400_000 < 6) return 0;
   const id = await tcgplayerId(card);
+  tcgDebug.id = id;
   if (!id) return 0;
-  const r = await fetch(`https://infinite-api.tcgplayer.com/price/history/${id}/detailed?range=annual`, { headers: { Accept: 'application/json' } });
+  const r = await fetch(`https://infinite-api.tcgplayer.com/price/history/${id}/detailed?range=annual`, {
+    headers: {
+      Accept: 'application/json, text/plain, */*',
+      'User-Agent': UA,
+      Origin: 'https://www.tcgplayer.com',
+      Referer: `https://www.tcgplayer.com/product/${id}`,
+    },
+  });
+  tcgDebug.status = r.status;
   if (!r.ok) return 0;
-  const buckets = parseTcgHistory(await r.json(), TCG_VARIANT[variant]);
+  const text = await r.text();
+  let json: unknown = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    tcgDebug.status = `${r.status} não-JSON: ${text.slice(0, 60)}`;
+    return 0;
+  }
+  const buckets = parseTcgHistory(json, TCG_VARIANT[variant]);
+  tcgDebug.result = buckets.length;
   await upsertSnapshots(buckets.map((b) => ({
     card_id: card.id, source: 'tcgplayer' as const, captured_on: b.date, currency: 'USD',
     price_min: null, price_avg: b.market, price_max: null, price_last: null, offers: null,

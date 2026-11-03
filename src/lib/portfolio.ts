@@ -144,6 +144,10 @@ export function valueSeries(
     start = minusDays(today, days);
   }
   const out: { date: string; value: number }[] = [];
+  // Sem nenhum preço antigo (real ou estimado), mostra só o valor de hoje em vez de uma linha reta inventada
+  const hasPast = hs.some((h) => brPriceAt(snapsByCard.get(h.cardId) ?? [], minusDays(today, 1), mode, today) !== null
+    && (snapsByCard.get(h.cardId) ?? []).some((s) => s.captured_on < today));
+  if (!hasPast) start = today;
   for (let d = start; d <= today; d = minusDays(d, -1)) {
     let v = 0;
     let any = false;
