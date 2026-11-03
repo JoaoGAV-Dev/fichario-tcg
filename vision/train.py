@@ -97,13 +97,8 @@ def main():
     syn_imgs = pool.map(_job, [(ids[i], 1000 + k) for k, i in enumerate(syn_idx)], chunksize=32)
     real = B.real_queries()
     neg_imgs = B.negatives([r['img'] for r in real if r['label'] == 'none'], rng)
-    for k in range(len(neg_imgs)):
-        if neg_imgs[k] is None:
-            c = B.load_native(ids[int(rng.integers(N))])
-            h, w = c.shape[:2]
-            y0 = int(rng.uniform(0.05, 0.4) * h)
-            x0 = int(rng.uniform(0.0, 0.3) * w)
-            neg_imgs[k] = cv2.resize(c[y0:y0 + int(0.45 * h), x0:x0 + int(0.6 * w)], (W, H))
+    # pedaços de carta não entram: um pedaço da carta X bater com X é acerto, não falso positivo
+    neg_imgs = [x for x in neg_imgs if x is not None]
 
     model, bb = build(N, args.backbone)
     head = CosFace(N)
