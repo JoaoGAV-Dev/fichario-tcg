@@ -76,6 +76,21 @@ export interface PricePoint {
 const INTL_TOLERANCE_DAYS = 10;
 
 /**
+ * Preço do TCGplayer numa data, usando a série semanal (histórico) quando existe — assim "antes" e
+ * "agora" vêm da mesma base. Aceita a 1ª semana até 7 dias depois da data (borda de 1 ano).
+ */
+export function intlAt(snaps: Snapshot[], date: string): number | null {
+  const tcg = snaps.filter((s) => s.source === 'tcgplayer' && s.price_avg !== null);
+  const weekly = tcg.filter((s) => s.raw && (s.raw as Record<string, unknown>).weekly);
+  const base = weekly.length ? weekly : tcg;
+  const before = priceOn(base, 'tcgplayer', date, INTL_TOLERANCE_DAYS);
+  if (before !== null) return before;
+  const limit = minusDays(date, -7);
+  const after = base.filter((s) => s.captured_on > date && s.captured_on <= limit).sort((a, b) => (a.captured_on < b.captured_on ? -1 : 1))[0];
+  return after ? (after.price_avg as number) : null;
+}
+
+/**
  * Preço brasileiro numa data. Se ainda não havia coleta brasileira naquela data, estima:
  * preço BR de hoje × (preço TCGplayer na data ÷ preço TCGplayer hoje).
  */
@@ -86,8 +101,8 @@ export function brPriceAt(
   if (real !== null) return { value: real, estimated: false };
   const nowBr = refPrice(snaps, today, mode);
   if (nowBr === null) return null;
-  const intlThen = priceOn(snaps, 'tcgplayer', date, INTL_TOLERANCE_DAYS);
-  const intlNow = priceOn(snaps, 'tcgplayer', today, INTL_TOLERANCE_DAYS);
+  const intlThen = intlAt(snaps, date);
+  const intlNow = intlAt(snaps, today);
   if (!intlThen || !intlNow) return null;
   return { value: Math.round(((nowBr * intlThen) / intlNow) * 100) / 100, estimated: true };
 }
@@ -120,10 +135,16 @@ export function changesFor(
       return { key: p.key, label: p.label, days: p.days, now, then: then?.value ?? null, pct: pct(now, then?.value ?? null), estimated: then?.estimated };
     });
   }
-  const tol = pick === 'tcgplayer' ? INTL_TOLERANCE_DAYS : MAX_AGE_DAYS;
-  const now = priceOn(snaps, pick, today, pick === 'tcgplayer' ? INTL_TOLERANCE_DAYS : undefined);
+  if (pick === 'tcgplayer') {
+    const now = intlAt(snaps, today);
+    return PERIODS.map((p) => {
+      const then = intlAt(snaps, minusDays(today, p.days));
+      return { key: p.key, label: p.label, days: p.days, now, then, pct: pct(now, then) };
+    });
+  }
+  const now = priceOn(snaps, pick, today);
   return PERIODS.map((p) => {
-    const then = priceOn(snaps, pick, minusDays(today, p.days), tol);
+    const then = priceOn(snaps, pick, minusDays(today, p.days), MAX_AGE_DAYS);
     return { key: p.key, label: p.label, days: p.days, now, then, pct: pct(now, then) };
   });
 }
@@ -142,11 +163,13 @@ export function chartSeries(snaps: Snapshot[], mode: RefMode, days: number, toda
     .filter((p): p is { date: string; value: number; estimated: boolean } => p !== null);
 }
 
-/** Série internacional (TCGplayer, US$) para o gráfico da carta. */
+/** Série internacional (TCGplayer, US$) para o gráfico da carta (semanal, quando existe). */
 export function intlSeries(snaps: Snapshot[], days: number, today = todayBR()) {
   const from = minusDays(today, days);
-  return snaps
-    .filter((s) => s.source === 'tcgplayer' && s.captured_on >= from && s.price_avg !== null)
+  const tcg = snaps.filter((s) => s.source === 'tcgplayer' && s.price_avg !== null);
+  const weekly = tcg.filter((s) => s.raw && (s.raw as Record<string, unknown>).weekly);
+  return (weekly.length ? weekly : tcg)
+    .filter((s) => s.captured_on >= from)
     .sort((a, b) => (a.captured_on < b.captured_on ? -1 : 1))
     .map((s) => ({ date: s.captured_on, value: s.price_avg as number }));
 }

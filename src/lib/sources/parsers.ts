@@ -188,11 +188,12 @@ export function parseTcgHistory(json: unknown, variantHint?: string): TcgBucket[
   const score = (r: Record<string, unknown>) => {
     const v = String(r.variant ?? '').toLowerCase();
     const c = String(r.condition ?? '').toLowerCase();
+    // Variante certa primeiro; depois a condição com MAIS vendas (série mais estável);
+    // Near Mint só desempata.
     let s = 0;
-    if (want && v.replace(/\s/g, '') === want.replace(/\s/g, '')) s += 10;
+    if (want && v.replace(/\s/g, '') === want.replace(/\s/g, '')) s += 1_000_000;
+    s += Number(r.totalQuantitySold ?? 0) * 10;
     if (c === 'near mint') s += 5;
-    else if (c === 'lightly played') s += 3;
-    s += Math.min(4, Number(r.totalQuantitySold ?? 0) / 100);
     return s;
   };
   const best = [...result].sort((a, b) => score(b) - score(a))[0];

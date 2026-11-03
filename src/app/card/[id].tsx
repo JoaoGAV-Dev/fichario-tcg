@@ -200,7 +200,7 @@ export default function CardScreen() {
           <Txt variant="h2">Variação</Txt>
           <View style={styles.tableRow}>
             <Txt variant="label" style={styles.tableHead}> </Txt>
-            {PERIODS.map((p) => <Txt key={p.key} variant="label" style={styles.tableCell}>{p.label}</Txt>)}
+            {PERIODS.map((p) => <Txt key={p.key} variant="label" style={styles.tableCell}>{p.key === '12m' ? '1 ano' : p.key}</Txt>)}
           </View>
           {([['Referência', refChanges], ['Liga', ligaChanges], ['MYP', mypChanges], ['EUA', tcgChanges]] as const).map(([label, ch]) => (
             <View key={label} style={styles.tableRow}>

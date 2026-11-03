@@ -128,8 +128,8 @@ export function refreshMypSet(card: DbCard): Promise<number> {
     if (fresh && fresh.n > 0) return fresh.n;
 
     const all: MypListing[] = [];
-    for (let page = 1; page <= 40; page += 4) {
-      const batch = await Promise.all([page, page + 1, page + 2, page + 3].map((p) =>
+    for (let page = 1; page <= 40; page += 8) {
+      const batch = await Promise.all([0, 1, 2, 3, 4, 5, 6, 7].map((i) => page + i).map((p) =>
         html(`${MYP}/pokemon/${slug}?page=${p}`).then(parseMypListing).catch(() => [])));
       for (const b of batch) all.push(...b);
       if (batch.some((b) => b.length < 30)) break; // última página

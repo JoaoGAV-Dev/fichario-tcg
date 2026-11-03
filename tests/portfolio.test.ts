@@ -107,6 +107,6 @@ describe('preço rápido e histórico longo', () => {
       { variant: 'Holofoil', condition: 'Near Mint', totalQuantitySold: '300', buckets: [
         { marketPrice: '5.6', bucketStartDate: '2026-11-02' }, { marketPrice: '4.9', bucketStartDate: '2026-10-26' }] },
     ] };
-    expect(parseTcgHistory(j, 'Holofoil')).toEqual([{ date: '2026-10-26', market: 4.9 }, { date: '2026-11-02', market: 5.6 }]);
+    expect(parseTcgHistory(j, 'Holofoil')).toEqual([{ date: '2026-11-02', market: 5.11 }]); // a condição com mais vendas
   });
 });
