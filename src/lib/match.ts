@@ -116,7 +116,11 @@ export async function findCandidates(info: FooterInfo | null, name: string | nul
   if (name && info?.number && !ranked.some((c) => c.sure)) {
     const byName = rankCandidates({ ...info, number: null }, name, await catalogByName(name), sets)
       .filter((c) => c.abbrMatch || (info.total && (c.set.cardCount.official === info.total || c.set.cardCount.total === info.total)));
+    // Número lido pela metade ("25" de "125"): fica com a que termina com esses dígitos
+    const digits = info.number.replace(/^0+/, '');
+    const tail = byName.filter((c) => c.card.localId.replace(/^0+/, '').endsWith(digits));
     if (byName.length === 1) ranked = [{ ...byName[0], sure: true }];
+    else if (tail.length === 1) ranked = [{ ...tail[0], sure: true }, ...byName.filter((c) => c !== tail[0])];
     else if (byName.length > 1) ranked = byName;
   }
   return ranked;
