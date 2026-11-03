@@ -22,12 +22,13 @@ interface LigaState {
   challenge: boolean;
   visible: boolean;
   lastSummary: string | null;
+  needsCheck: boolean; // a Liga pediu "Confirme que é humano" enquanto rodava escondida
   start: (cards?: Job[], opts?: { visible?: boolean }) => Promise<void>;
   show: () => void;
 }
 
 const Ctx = createContext<LigaState>({
-  running: false, done: 0, total: 0, challenge: false, visible: false, lastSummary: null,
+  running: false, done: 0, total: 0, challenge: false, visible: false, lastSummary: null, needsCheck: false,
   start: async () => {}, show: () => {},
 });
 export const useLiga = () => useContext(Ctx);
@@ -69,6 +70,7 @@ export function LigaProvider({ children }: { children: ReactNode }) {
   const [visible, setVisible] = useState(false);
   const [autoShown, setAutoShown] = useState(false);
   const [lastSummary, setLastSummary] = useState<string | null>(null);
+  const [needsCheck, setNeedsCheck] = useState(false);
   const okCount = useRef(0);
   const handled = useRef<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -112,6 +114,7 @@ export function LigaProvider({ children }: { children: ReactNode }) {
     }
     okCount.current = 0;
     handled.current = null;
+    setNeedsCheck(false);
     queueRef.current = list;
     indexRef.current = 0;
     setQueue(list);
@@ -150,22 +153,20 @@ export function LigaProvider({ children }: { children: ReactNode }) {
     if (!job) return;
     const msg = JSON.parse(e.nativeEvent.data);
     if (msg.type === 'challenge') {
-      if (!challenge) {
-        setChallenge(true);
-        if (!visible) {
-          setVisible(true);
-          setAutoShown(true);
-        }
+      if (!visible) {
+        // Rodando escondido: NÃO abre a tela sozinho. Para e deixa um aviso para você resolver quando quiser.
+        setNeedsCheck(true);
+        finish(index);
+        setLastSummary('Liga pediu verificação · toque para atualizar');
+        return;
       }
+      setChallenge(true);
       return;
     }
     const key = `${job.id}@${index}`;
     if (msg.type !== 'page' || handled.current === key) return;
     handled.current = key;
-    if (challenge && autoShown) {
-      setVisible(false); // passou pela verificação: volta a rodar escondido
-      setAutoShown(false);
-    }
+    if (challenge && autoShown) setAutoShown(false);
     const prices = parseLigaText(`${msg.bits}\n${msg.text}`);
     await saveLigaSnapshot(job.id, prices, msg.url);
     if (prices.avg !== null || prices.min !== null) {
@@ -180,7 +181,7 @@ export function LigaProvider({ children }: { children: ReactNode }) {
   return (
     <Ctx.Provider
       value={{
-        running, done: Math.min(index, queue.length), total: queue.length, challenge, visible, lastSummary,
+        running, done: Math.min(index, queue.length), total: queue.length, challenge, visible, lastSummary, needsCheck,
         start, show: () => setVisible(true),
       }}>
       {children}
@@ -234,15 +235,17 @@ export function LigaStatus() {
   const t = useTheme();
   const liga = useLiga();
   if (!liga.running && !liga.lastSummary) return null;
+  const attention = liga.challenge || (!liga.running && liga.needsCheck);
   const label = liga.running
     ? liga.challenge
       ? 'Liga pede verificação — toque aqui'
       : `Atualizando Liga… ${liga.done}/${liga.total}`
     : liga.lastSummary;
+  const onPress = liga.running ? liga.show : liga.needsCheck ? () => liga.start(undefined, { visible: true }) : undefined;
   return (
-    <Pressable onPress={liga.running ? liga.show : undefined}>
-      <View style={[styles.status, { backgroundColor: liga.challenge ? t.accent : t.backgroundElement }]}>
-        <Text style={{ color: liga.challenge ? t.accentText : t.textSecondary, fontSize: 13, fontWeight: '600' }}>{label}</Text>
+    <Pressable onPress={onPress}>
+      <View style={[styles.status, { backgroundColor: attention ? t.highlight : t.backgroundElement }]}>
+        <Text style={{ color: attention ? t.highlightText : t.textSecondary, fontSize: 13, fontWeight: '600' }}>{label}</Text>
       </View>
     </Pressable>
   );

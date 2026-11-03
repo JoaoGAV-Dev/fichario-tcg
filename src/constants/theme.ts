@@ -1,36 +1,26 @@
 import { Platform } from 'react-native';
 
-// Paleta: fundo neutro, destaque amarelo-elétrico (cara de carta Pokémon), verde/vermelho para variação.
-export const Colors = {
-  light: {
-    text: '#15161A',
-    textSecondary: '#62656E',
-    background: '#F6F5F1',
-    card: '#FFFFFF',
-    backgroundElement: '#ECEAE3',
-    backgroundSelected: '#DEDBD0',
-    border: '#E2DFD6',
-    accent: '#F2B705',
-    accentText: '#2A2100',
-    up: '#1E8E4E',
-    down: '#C9372C',
-    muted: '#9A9CA3',
-  },
-  dark: {
-    text: '#F3F2EE',
-    textSecondary: '#A6A8AF',
-    background: '#0F1013',
-    card: '#191A1F',
-    backgroundElement: '#22242A',
-    backgroundSelected: '#2E3138',
-    border: '#2A2C33',
-    accent: '#F7C934',
-    accentText: '#2A2100',
-    up: '#3CCB7F',
-    down: '#FF6B5E',
-    muted: '#6E717A',
-  },
+// Paleta (tema escuro único): roxo vibrante + amarelo elétrico, verde/vermelho para variação.
+const dark = {
+  text: '#F5F3FF',
+  textSecondary: '#A9A3C9',
+  background: '#0B0A14',
+  card: '#15132A',
+  backgroundElement: '#211D3D',
+  backgroundSelected: '#2D2752',
+  border: '#2A2547',
+  accent: '#8B5CF6',
+  accentText: '#FFFFFF',
+  highlight: '#FACC15',
+  highlightText: '#1F1500',
+  up: '#34D399',
+  down: '#F87171',
+  muted: '#6E6890',
+  heroFrom: '#5B21B6',
+  heroTo: '#1E1B4B',
 } as const;
+
+export const Colors = { light: dark, dark } as const;
 
 export type ThemeColors = { [K in keyof typeof Colors.light]: string };
 

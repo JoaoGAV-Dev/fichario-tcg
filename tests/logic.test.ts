@@ -3,13 +3,16 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@react-native-async-storage/async-storage', () => ({ default: { getItem: async () => null, setItem: async () => {} } }));
 vi.mock('../src/lib/db', () => ({ getDb: async () => ({}), setMeta: async () => {}, emitDataChanged: () => {} }));
 vi.mock('../modules/card-ocr', () => ({ isOcrAvailable: () => false, recognizeAsync: async () => ({}) }));
+vi.mock('expo-image-manipulator', () => ({ ImageManipulator: {}, SaveFormat: { JPEG: 'jpeg' } }));
+vi.mock('expo-file-system', () => ({ File: class {} }));
 
 import {
   formatCardNumber, ligaCardUrl, parseBRL, parseLigaText, parseMypProduct, parseMypSearch, pickMypHit,
 } from '../src/lib/sources/parsers';
 import { localIdVariants, parseCardFooter } from '../src/lib/footer.ts';
-import { candidateSets, pickCandidates } from '../src/lib/match.ts';
-import { footerTextFromLines } from '../src/lib/ocr.ts';
+import { rankCandidates, resolveCodes } from '../src/lib/match.ts';
+import type { SetMeta } from '../src/lib/catalog';
+import { cardNameFromLines, footerTextFromLines } from '../src/lib/ocr.ts';
 import {
   cardmarketMonthTrend, changesFor, chartSeries, minusDays, portfolioChanges, priceOn, refPrice, todayBR, type Snapshot,
 } from '../src/lib/prices.ts';
@@ -88,23 +91,43 @@ describe('rodapé da carta (OCR)', () => {
 });
 
 describe('casamento com o catálogo', () => {
-  const set = (id: string, abbr: string, official: number, ids: string[]): SetDetail => ({
-    id, name: id, cardCount: { official, total: official + 20 }, serie: { id: 'sv', name: 'sv' },
-    abbreviation: { official: abbr }, cards: ids.map((l) => ({ id: `${id}-${l}`, localId: l, name: `c${l}` })),
+  const meta = (id: string, abbr: string, official: number, order: number): SetMeta => ({
+    id, name: id, abbr, order, serie: 's', cardCount: { official, total: official + 20 },
   });
-  const obf = set('sv03', 'OBF', 197, ['124', '125']);
-  const pps = set('ppsx', 'PPS', 197, ['125']);
+  const sets = new Map([
+    ['me03', meta('me03', 'POR', 88, 0)], ['mee', meta('mee', 'MEE', 8, 1)],
+    ['sv03', meta('sv03', 'OBF', 197, 5)], ['ppsx', meta('ppsx', 'PPS', 197, 6)], ['sv01', meta('sv01', 'SVI', 198, 9)],
+  ]);
+  const row = (id: string, name: string) => ({ id, set_id: id.slice(0, id.lastIndexOf('-')), local_id: id.split('-').pop()!, name, image: null });
 
-  it('desempata pela sigla', () => {
-    const r = pickCandidates(parseCardFooter('OBF PT 125/197'), [pps, obf]);
-    expect(r.map((c) => c.card.id)).toEqual(['sv03-125']);
+  it('Busca de Energia: sigla + número (o caso que falhou)', () => {
+    const rows = [row('me03-072', 'Busca de Energia'), row('sv01-072', 'Outra')];
+    const r = rankCandidates(parseCardFooter('POR PT 072/088'), 'Busca de Energia', rows, sets);
+    expect(r.map((c) => [c.card.id, c.sure])).toEqual([['me03-072', true]]);
   });
-  it('sem sigla, devolve as duas para o usuário escolher', () => {
-    expect(pickCandidates(parseCardFooter('125/197'), [pps, obf])).toHaveLength(2);
+  it('Energia Básica: sigla + número sem total (o outro caso)', () => {
+    const r = rankCandidates(parseCardFooter('MEE PT 007'), 'Energia Básica', [row('mee-007', 'Energia de Escuridão'), row('sv01-007', 'X')], sets);
+    expect(r.map((c) => [c.card.id, c.sure])).toEqual([['mee-007', true]]);
   });
-  it('filtra coleções pelo total impresso', () => {
-    const briefs = [obf, set('me01', 'MEG', 132, [])];
-    expect(candidateSets(parseCardFooter('086/132'), briefs).map((s) => s.id)).toEqual(['me01']);
+  it('sigla lida com dígito ("P0R")', () => {
+    expect(parseCardFooter('P0R PT 072/088').setCodes).toContain('POR');
+    expect(resolveCodes(['PQR'], new Set(['POR', 'OBF']))).toEqual(['POR']);
+  });
+  it('só número + nome desempata', () => {
+    const rows = [row('me03-072', 'Busca de Energia'), row('sv01-072', 'Pikachu')];
+    const r = rankCandidates(parseCardFooter('072'.padEnd(3)), 'Busca de Energia', rows, sets);
+    expect(r[0].card.id).toBe('me03-072');
+  });
+  it('só o nome: lista as reimpressões, mais novas primeiro, sem adicionar sozinho', () => {
+    const rows = [row('sv01-172', 'Busca de Energia'), row('me03-072', 'Busca de Energia')];
+    const r = rankCandidates(null, 'Busca de Energia', rows, sets);
+    expect(r.map((c) => c.card.id)).toEqual(['me03-072', 'sv01-172']);
+    expect(r.every((c) => !c.sure)).toBe(true);
+  });
+  it('sem sigla e mesmo total em 2 coleções: pergunta', () => {
+    const r = rankCandidates(parseCardFooter('125/197'), null, [row('sv03-125', 'Charizard ex'), row('ppsx-125', 'Charizard ex')], sets);
+    expect(r).toHaveLength(2);
+    expect(r.some((c) => c.sure)).toBe(false);
   });
 });
 
@@ -120,8 +143,14 @@ describe('rodapé a partir das linhas do OCR', () => {
   it('sem número legível, devolve null', () => {
     expect(footerTextFromLines([L('Charizard ex', 0, 0), L('Fraqueza x2', 0, 800)])).toBeNull();
   });
-  it('promo sem barra', () => {
+  it('promo e energia sem barra', () => {
     expect(footerTextFromLines([L('SVP PT 074', 10, 900)])).toBe('SVP PT 074');
+    expect(footerTextFromLines([L('MEE PT 007', 10, 900)])).toBe('MEE PT 007');
+  });
+  it('nome da carta: maior texto do topo, sem "Item"/"TREINADOR"', () => {
+    const lines = [L('Item', 10, 20, 14), L('TREINADOR', 200, 20, 16), L('Busca de Energia', 10, 50, 30), L('Procure por uma carta', 10, 600, 14)];
+    expect(cardNameFromLines(lines, 1000)).toBe('Busca de Energia');
+    expect(cardNameFromLines([L('Dewgong', 40, 30, 40), L('PS 130', 400, 30, 30)], 1000)).toBe('Dewgong');
   });
 });
 

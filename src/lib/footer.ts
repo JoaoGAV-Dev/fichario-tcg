@@ -61,7 +61,15 @@ export function parseCardFooter(input: string): FooterInfo {
         continue;
       }
     }
-    if (/^[A-Z]{2,4}$/.test(t) && !info.setCodes.includes(t)) info.setCodes.push(t);
+    if (/^[A-Z]{2,4}$/.test(t)) {
+      if (!info.setCodes.includes(t)) info.setCodes.push(t);
+      continue;
+    }
+    // Sigla com dígito lido no lugar de letra ("P0R" -> "POR", "0BF" -> "OBF")
+    if (/^[A-Z0-9]{2,4}$/.test(t) && (t.match(/[A-Z]/g) ?? []).length >= 2) {
+      const fixed = t.replace(/0/g, 'O').replace(/1/g, 'I').replace(/5/g, 'S').replace(/8/g, 'B');
+      if (/^[A-Z]{2,4}$/.test(fixed) && !info.setCodes.includes(fixed)) info.setCodes.push(fixed);
+    }
   }
 
   // 3) promo no formato "SVP PT 074": número solto depois da sigla

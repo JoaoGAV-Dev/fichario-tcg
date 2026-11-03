@@ -8,21 +8,25 @@ import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { router, useIsFocused } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
-  Alert, AppState, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View,
+  Alert, Animated, AppState, KeyboardAvoidingView, LayoutAnimation, Platform, Pressable, ScrollView, StyleSheet, TextInput,
+  UIManager, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Button, Chip, Panel, Txt } from '@/components/ui';
+import { Button, Chip, Panel, SectionTitle, Txt } from '@/components/ui';
+
+if (Platform.OS === 'android') UIManager.setLayoutAnimationEnabledExperimental?.(true);
 import { useTheme } from '@/hooks/use-theme';
 import {
   VARIANT_LABEL, addToCollection, defaultVariant, ensureCard, getItem, setQuantity, type Variant,
 } from '@/lib/collection';
 import { parseCardFooter, type FooterInfo } from '@/lib/footer';
 import { brl } from '@/lib/format';
-import { useLiga } from '@/lib/liga';
 import { findCandidates, type Candidate } from '@/lib/match';
-import { isOcrAvailable, readCardFooter } from '@/lib/ocr';
+import { isOcrAvailable, readCard, screenRectToPhoto } from '@/lib/ocr';
+import { ensureCatalog, setsWithAbbr } from '@/lib/catalog';
 import { getCardSnapshots, refPrice, refreshCards, todayBR } from '@/lib/prices';
 import { cachedMypPrice, intlPriceBRL, warmCard } from '@/lib/sources/fast';
 import { useSettings } from '@/lib/settings';
@@ -51,7 +55,6 @@ const keyOf = (i: FooterInfo) => `${i.setCodes[0] ?? ''}|${i.number}/${i.totalRa
 export default function ScanScreen() {
   const t = useTheme();
   const focused = useIsFocused();
-  const liga = useLiga();
   const { refMode } = useSettings();
   const [permission, requestPermission] = useCameraPermissions();
   const camera = useRef<CameraView>(null);
@@ -64,6 +67,9 @@ export default function ScanScreen() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [rows, setRows] = useState<SessionRow[]>([]);
   const [manual, setManual] = useState('');
+  const [torch, setTorch] = useState(false);
+  const [wrap, setWrap] = useState<{ width: number; height: number } | null>(null);
+  const [catalogReady, setCatalogReady] = useState(false);
   const rowsRef = useRef<SessionRow[]>([]);
   rowsRef.current = rows;
 
@@ -87,6 +93,10 @@ export default function ScanScreen() {
   useEffect(() => {
     if (!focused) setReady(false);
   }, [focused]);
+  // Catálogo local + siglas: baixa uma vez (≈1–3 s) e deixa a identificação instantânea
+  useEffect(() => {
+    Promise.all([ensureCatalog(), setsWithAbbr()]).then(() => setCatalogReady(true)).catch(() => setCatalogReady(true));
+  }, []);
 
   function setMode(m: Mode) {
     setModeState(m);
@@ -94,8 +104,13 @@ export default function ScanScreen() {
     AsyncStorage.setItem('scanMode', m).catch(() => {});
   }
 
+  const pulse = useRef(new Animated.Value(0)).current;
   function showFlash(msg: string) {
     setFlash(msg);
+    if (msg.startsWith('✓')) {
+      pulse.setValue(1);
+      Animated.timing(pulse, { toValue: 0, duration: 900, useNativeDriver: false }).start();
+    }
     setTimeout(() => setFlash((f) => (f === msg ? null : f)), 2500);
   }
 
@@ -128,11 +143,10 @@ export default function ScanScreen() {
         const full = refPrice(await getCardSnapshots(cardId, 3), todayBR(), refMode);
         if (full !== null) put(full, 'Liga/MYP · médio');
       }).catch(() => {});
-      liga.start([card]);
     } catch {
       setRows((rs) => rs.map((r) => (r.key === key && r.price === undefined ? { ...r, price: null } : r)));
     }
-  }, [refMode, liga]);
+  }, [refMode]);
 
   /** Carta identificada: adiciona (ou só mostra) e segue escaneando. */
   const accept = useCallback(async (c: Candidate) => {
@@ -160,6 +174,7 @@ export default function ScanScreen() {
       const { itemId } = await addToCollection(c.card.id, { variant, condition: 'NM', quantity: 1 });
       const key = `item-${itemId}`;
       const isNew = !rowsRef.current.some((r) => r.key === key);
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setRows((rs) => {
         const found = rs.find((r) => r.key === key);
         if (found) return [{ ...found, added: found.added + 1 }, ...rs.filter((r) => r.key !== key)];
@@ -172,14 +187,16 @@ export default function ScanScreen() {
     }
   }, [loadPrice]);
 
-  const resolve = useCallback(async (info: FooterInfo, source: 'camera' | 'manual') => {
-    setHint(`Procurando ${info.setCodes[0] ?? ''} ${info.number}${info.totalRaw ? '/' + info.totalRaw : ''}…`);
+  const resolve = useCallback(async (info: FooterInfo | null, source: 'camera' | 'manual', name: string | null = null) => {
+    setHint(info?.number
+      ? `Procurando ${info.setCodes[0] ?? ''} ${info.number}${info.totalRaw ? '/' + info.totalRaw : ''}…`
+      : `Procurando "${name}"…`);
     try {
-      const found = await findCandidates(info);
-      if (found.length === 1) {
+      const found = await findCandidates(info, name);
+      if (found.length && (found[0].sure || (found.length === 1 && source === 'manual'))) {
         await accept(found[0]);
         setHint('Pronto. Mostre a próxima carta.');
-      } else if (found.length > 1) {
+      } else if (found.length >= 1) {
         // Mesma carta já escolhida há pouco? Não pergunta de novo
         const recent = found.find((f) => f.card.id === last.current.cardId);
         if (recent && Date.now() - last.current.at < SAME_CARD_COOLDOWN_MS) {
@@ -191,7 +208,7 @@ export default function ScanScreen() {
         setPhase('choose');
       } else {
         setHint(source === 'camera'
-          ? `Li "${info.number}/${info.totalRaw ?? '?'}", mas não achei. Ajuste ângulo e luz…`
+          ? `Li "${info?.number ?? name}", mas não achei. Ajuste ângulo e luz…`
           : 'Não achei nenhuma carta com esse rodapé.');
       }
     } catch {
@@ -200,24 +217,29 @@ export default function ScanScreen() {
   }, [accept]);
 
   const scanOnce = useCallback(async () => {
-    if (!camera.current || busy.current) return;
+    if (!camera.current || busy.current || !wrap) return;
     busy.current = true;
     let uri: string | null = null;
     try {
-      const photo = await camera.current.takePictureAsync({ quality: 0.6, shutterSound: false });
+      const photo = await camera.current.takePictureAsync({ quality: 0.92, shutterSound: false });
       uri = photo.uri;
-      const read = await readCardFooter(photo.uri);
-      if (!read.info) {
+      // Contorno da tela (mesmas % do estilo "guide", com 3% de folga) -> pixels da foto
+      const g = { x: wrap.width * 0.14, y: wrap.height * 0.03, width: wrap.width * 0.72, height: wrap.height * 0.94 };
+      const card = screenRectToPhoto(g, wrap, photo);
+      const read = await readCard(photo.uri, card, photo.height);
+      const info = read.info;
+      const nameKey = read.name ? `name:${read.name.toLowerCase()}` : '';
+      const key = info ? keyOf(info) : nameKey;
+      if (!key) {
         seen.current = { key: '', count: 0 };
-        setHint(read.footer ? `Lendo… "${read.footer}"` : 'Aproxime a carta: preciso ver o número (ex.: 125/197)');
+        setHint('Aproxime a carta e deixe o rodapé (sigla e número) nítido');
         return;
       }
-      const info = read.info;
-      const key = keyOf(info);
       seen.current = { key, count: seen.current.key === key ? seen.current.count + 1 : 1 };
-      setHint(`Li ${read.footer}`);
-      // Com sigla da coleção: confia na 1ª leitura. Sem sigla (cartas antigas): 2 leituras iguais.
-      if (info.setCodes.length || seen.current.count >= 2) await resolve(info, 'camera');
+      setHint(info ? `Li ${read.footer}${read.name ? ` · ${read.name}` : ''}` : `Li "${read.name}" · procurando o número…`);
+      // Rodapé com sigla ou total: confia na 1ª leitura. Só número ou só nome: 2 leituras iguais.
+      const strong = !!info && (info.setCodes.length > 0 || info.total !== null);
+      if (strong || seen.current.count >= 2) await resolve(info, 'camera', read.name);
     } finally {
       busy.current = false;
       if (uri) {
@@ -226,11 +248,11 @@ export default function ScanScreen() {
         } catch {}
       }
     }
-  }, [resolve]);
+  }, [resolve, wrap]);
 
   // Loop do scanner
   useEffect(() => {
-    if (!ocr || !focused || !appActive || !ready || phase !== 'scanning' || !permission?.granted) return;
+    if (!ocr || !focused || !appActive || !ready || !catalogReady || phase !== 'scanning' || !permission?.granted) return;
     let stop = false;
     const tick = async () => {
       if (stop) return;
@@ -243,7 +265,7 @@ export default function ScanScreen() {
     return () => {
       stop = true;
     };
-  }, [ocr, focused, appActive, ready, phase, permission?.granted, scanOnce]);
+  }, [ocr, focused, appActive, ready, catalogReady, phase, permission?.granted, scanOnce]);
 
   async function choose(c: Candidate | null) {
     setPhase('scanning');
@@ -287,22 +309,35 @@ export default function ScanScreen() {
               <Button title="Permitir câmera" onPress={requestPermission} />
             </Panel>
           ) : (
-            <View style={styles.cameraWrap}>
+            <View style={styles.cameraWrap} onLayout={(e) => setWrap({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}>
               {focused ? (
                 <CameraView
                   ref={camera}
                   style={StyleSheet.absoluteFill}
                   facing="back"
                   autofocus="on"
+                  enableTorch={torch}
                   animateShutter={false}
                   onCameraReady={() => setReady(true)}
                 />
               ) : null}
-              <View pointerEvents="none" style={[styles.guide, { borderColor: flash?.startsWith('✓') ? t.up : 'rgba(255,255,255,0.85)' }]} />
-              <View pointerEvents="none" style={styles.band} />
-              <View style={styles.hint}>
+              <Animated.View
+                pointerEvents="none"
+                style={[styles.guide, {
+                  borderColor: pulse.interpolate({ inputRange: [0, 1], outputRange: ['rgba(255,255,255,0.85)', t.up] }),
+                  borderWidth: pulse.interpolate({ inputRange: [0, 1], outputRange: [2.5, 6] }),
+                  backgroundColor: pulse.interpolate({ inputRange: [0, 1], outputRange: ['rgba(52,211,153,0)', 'rgba(52,211,153,0.18)'] }),
+                }]}
+              />
+              <View pointerEvents="none" style={styles.band}>
+                <Txt variant="small" color="#FFFFFFAA" style={{ fontSize: 10 }}>rodapé aqui</Txt>
+              </View>
+              <Pressable onPress={() => setTorch((v) => !v)} style={[styles.torch, { backgroundColor: torch ? t.highlight : 'rgba(0,0,0,0.5)' }]}>
+                <MaterialCommunityIcons name={torch ? 'flashlight' : 'flashlight-off'} size={22} color={torch ? t.highlightText : '#fff'} />
+              </Pressable>
+              <View style={[styles.hint, flash?.startsWith('✓') && { backgroundColor: 'rgba(16,120,80,0.85)' }]}>
                 <Txt variant="small" color="#fff" numberOfLines={2} style={{ textAlign: 'center', fontWeight: flash ? '700' : '400' }}>
-                  {phase === 'choose' ? 'Qual destas? Escolha abaixo' : flash ?? hint}
+                  {!catalogReady ? 'Preparando o catálogo de cartas (só na 1ª vez)…' : phase === 'choose' ? 'Qual destas? Escolha abaixo' : flash ?? hint}
                 </Txt>
               </View>
             </View>
@@ -331,10 +366,11 @@ export default function ScanScreen() {
 
           {rows.length ? (
             <Panel style={{ gap: 4 }}>
-              <View style={styles.rowBetween}>
-                <Txt variant="h2">{mode === 'auto' ? 'Adicionadas agora' : 'Consultadas agora'}</Txt>
-                <Txt variant="small">{mode === 'auto' ? `${copies} cartas · ` : ''}{brl(total)}</Txt>
-              </View>
+              <SectionTitle
+                icon={mode === 'auto' ? 'check-decagram' : 'magnify'}
+                title={mode === 'auto' ? 'Adicionadas agora' : 'Consultadas agora'}
+                right={<Txt variant="small" style={{ fontWeight: '700', color: t.highlight }}>{mode === 'auto' ? `${copies} · ` : ''}{brl(total)}</Txt>}
+              />
               {rows.map((r) => (
                 <View key={r.key} style={[styles.row, { borderColor: t.border }]}>
                   <Pressable onPress={() => router.push({ pathname: '/card/[id]', params: { id: r.cardId } })} style={styles.rowLink}>
@@ -397,15 +433,17 @@ export default function ScanScreen() {
 }
 
 const styles = StyleSheet.create({
-  cameraWrap: { height: 360, borderRadius: 18, overflow: 'hidden', backgroundColor: '#000' },
-  guide: { position: 'absolute', left: '17%', right: '17%', top: '6%', bottom: '6%', borderWidth: 2.5, borderRadius: 14 },
+  cameraWrap: { height: 400, borderRadius: 22, overflow: 'hidden', backgroundColor: '#000' },
+  guide: { position: 'absolute', left: '17%', right: '17%', top: '6%', bottom: '6%', borderWidth: 2.5, borderRadius: 16 },
   band: {
-    position: 'absolute', left: '17%', right: '17%', bottom: '6%', height: '14%',
-    backgroundColor: 'rgba(247,201,52,0.22)', borderBottomLeftRadius: 14, borderBottomRightRadius: 14,
+    position: 'absolute', left: '17%', right: '17%', bottom: '6%', height: '16%', alignItems: 'center', justifyContent: 'flex-end',
+    paddingBottom: 4, backgroundColor: 'rgba(250,204,21,0.18)', borderBottomLeftRadius: 16, borderBottomRightRadius: 16,
   },
+  torch: { position: 'absolute', top: 12, right: 12, width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
+  // Aviso no TOPO, para não cobrir o rodapé da carta na pré-visualização
   hint: {
-    position: 'absolute', left: 12, right: 12, bottom: 10, backgroundColor: 'rgba(0,0,0,0.62)',
-    borderRadius: 10, paddingVertical: 8, paddingHorizontal: 10,
+    position: 'absolute', left: 12, right: 62, top: 12, backgroundColor: 'rgba(0,0,0,0.62)',
+    borderRadius: 12, paddingVertical: 8, paddingHorizontal: 10,
   },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },

@@ -5,7 +5,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Button, ChangePill, Chip, Empty, Loading, Panel, PriceChart, Txt } from '@/components/ui';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+
+import { Button, ChangePill, Chip, Empty, HeroPanel, Loading, Panel, PriceChart, SectionTitle, Txt } from '@/components/ui';
 import { useTheme } from '@/hooks/use-theme';
 import { backfillCards, listCollection, ownedCards, type Item } from '@/lib/collection';
 import { onDataChanged } from '@/lib/db';
@@ -83,11 +85,16 @@ export default function Home() {
         contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 120 }}
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}>
-        <Txt variant="title">Minha Coleção</Txt>
+        <View style={styles.rowBetween}>
+          <Txt variant="title">Minha Coleção</Txt>
+          <Pressable onPress={() => router.push('/scan')} style={[styles.scanFab, { backgroundColor: t.accent }]}>
+            <MaterialCommunityIcons name="line-scan" size={22} color={t.accentText} />
+          </Pressable>
+        </View>
 
         <View style={styles.segRow}>
           <Pressable onPress={() => setSegment('colecoes')}>
-            <Txt style={[styles.seg, segment === 'colecoes' && { color: t.text, borderBottomColor: t.accent }]}>Coleções</Txt>
+            <Txt style={[styles.seg, { color: t.textSecondary }, segment === 'colecoes' && { color: t.text, borderBottomColor: t.accent }]}>Coleções</Txt>
           </Pressable>
           <Pressable onPress={() => setSegment('pokedex')}>
             <Txt style={[styles.seg, { color: t.textSecondary }, segment === 'pokedex' && { color: t.text, borderBottomColor: t.accent }]}>Pokédex</Txt>
@@ -105,10 +112,11 @@ export default function Home() {
 
         {items.length === 0 ? (
           <Empty title="Nenhuma carta ainda">
+            <MaterialCommunityIcons name="cards-playing-outline" size={64} color={t.accent} style={{ marginBottom: 8 }} />
             <Txt variant="small" style={{ textAlign: 'center', marginTop: 8 }}>
               Escaneie suas cartas ou marque pela aba Explorar.
             </Txt>
-            <Button title="Escanear cartas" onPress={() => router.push('/scan')} style={{ marginTop: 16 }} />
+            <Button title="Escanear cartas" icon="camera-outline" onPress={() => router.push('/scan')} style={{ marginTop: 16 }} />
           </Empty>
         ) : segment === 'pokedex' ? (
           <View style={styles.grid}>
@@ -127,8 +135,8 @@ export default function Home() {
         ) : (
           <>
             {/* ---------------------------------------------------- painel */}
-            <Panel style={{ gap: 10 }}>
-              <Txt variant="label" color={t.accent}>Minha coleção · painel</Txt>
+            <HeroPanel style={{ gap: 10 }}>
+              <Txt variant="label" color={t.highlight}>Minha coleção · painel</Txt>
               <Txt style={styles.hero}>
                 Sua coleção vale <Txt style={[styles.hero, { color: t.up }]}>{brl(dash.value).replace(',00', '')}</Txt>
               </Txt>
@@ -161,22 +169,19 @@ export default function Home() {
                   label="preço em 30 dias" w={(width - 16 * 2 - 32 - 10) / 2}
                 />
               </View>
-            </Panel>
+            </HeroPanel>
 
             <View style={{ flexDirection: 'row', gap: 10 }}>
-              <Button title={progress ?? 'Atualizar MYP'} kind="secondary" loading={!!progress} onPress={refreshPrices} style={{ flex: 1 }} />
+              <Button title={progress ?? 'Atualizar MYP'} icon="refresh" kind="secondary" loading={!!progress} onPress={refreshPrices} style={{ flex: 1 }} />
               <Button
-                title={liga.running ? 'Ver Liga' : 'Atualizar Liga'} kind="secondary" style={{ flex: 1 }}
+                title={liga.running ? 'Ver Liga' : 'Atualizar Liga'} icon="web" kind="secondary" style={{ flex: 1 }}
                 onPress={async () => (liga.running ? liga.show() : liga.start(await ownedCards(), { visible: true }))}
               />
             </View>
             <LigaStatus />
 
             {/* ---------------------------------------------------- coleções */}
-            <View style={styles.rowBetween}>
-              <Txt variant="h2">Coleções</Txt>
-              <Txt variant="small">{dash.activeSets} ativas</Txt>
-            </View>
+            <SectionTitle icon="cards-outline" title="Coleções" right={<Txt variant="small">{dash.activeSets} ativas</Txt>} />
             <View style={styles.grid}>
               {dash.sets.map((s) => {
                 const ratio = s.total ? Math.min(1, s.owned / s.total) : 0;
@@ -199,12 +204,12 @@ export default function Home() {
                 );
               })}
             </View>
-            <Button title="+ Abrir outra coleção" kind="secondary" onPress={() => router.push('/sets')} />
+            <Button title="Abrir outra coleção" icon="plus" kind="secondary" onPress={() => router.push('/sets')} />
 
             {/* ---------------------------------------------------- mais valiosas */}
             {dash.top.length ? (
               <Panel style={{ gap: 4 }}>
-                <Txt variant="h2">Mais valiosas da sua coleção</Txt>
+                <SectionTitle icon="diamond-stone" title="Mais valiosas da sua coleção" />
                 <Txt variant="small">Preços do mercado brasileiro (Liga e MYP).</Txt>
                 {dash.top.slice(0, 10).map((h) => (
                   <CardRow
@@ -221,7 +226,7 @@ export default function Home() {
 
             {/* ---------------------------------------------------- evolução */}
             <Panel style={{ gap: 10 }}>
-              <Txt variant="h2">Evolução do valor</Txt>
+              <SectionTitle icon="chart-areaspline" title="Evolução do valor" />
               <Txt variant="small">As cartas que você tem hoje, nos preços de cada dia.</Txt>
               <View style={styles.wrap}>
                 {RANGES.map((r) => <Chip key={String(r.key)} label={r.label} active={range === r.key} onPress={() => setRange(r.key)} />)}
@@ -246,12 +251,12 @@ export default function Home() {
 
             {/* ---------------------------------------------------- movimentações */}
             <Panel style={{ gap: 8 }}>
-              <Txt variant="h2">Movimentações</Txt>
+              <SectionTitle icon="swap-vertical-bold" title="Movimentações" />
               <Txt variant="small">O que mais mexeu no valor da sua coleção nos últimos 30 dias.</Txt>
               <View style={[styles.toggle, { backgroundColor: t.backgroundElement }]}>
                 {(['down', 'up'] as const).map((k) => (
                   <Pressable key={k} onPress={() => setMoverTab(k)} style={[styles.toggleBtn, moverTab === k && { backgroundColor: t.accent }]}>
-                    <Txt style={{ fontWeight: '700', color: moverTab === k ? t.accentText : t.text }}>{k === 'down' ? 'Caíram' : 'Subiram'}</Txt>
+                    <Txt style={{ fontWeight: '700', color: moverTab === k ? t.accentText : t.text }}>{k === 'down' ? '▼ Caíram' : '▲ Subiram'}</Txt>
                   </Pressable>
                 ))}
               </View>
@@ -282,7 +287,7 @@ export default function Home() {
 function Tile({ n, label, color }: { n: string; label: string; w?: number; color?: string }) {
   const t = useTheme();
   return (
-    <View style={[styles.tile, { borderColor: t.border, backgroundColor: t.backgroundElement }]}>
+    <View style={[styles.tile, { borderColor: '#FFFFFF22', backgroundColor: '#FFFFFF12' }]}>
       <Txt style={{ fontSize: 24, fontWeight: '800', color: color ?? t.text }}>{n}</Txt>
       <Txt variant="small">{label}</Txt>
     </View>
@@ -318,6 +323,7 @@ function CardRow({
 
 const styles = StyleSheet.create({
   segRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  scanFab: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   seg: { fontSize: 16, fontWeight: '700', paddingBottom: 6, borderBottomWidth: 2.5, borderBottomColor: 'transparent' },
   search: { flex: 1, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, fontSize: 14 },
   hero: { fontSize: 28, fontWeight: '800', letterSpacing: -0.5 },

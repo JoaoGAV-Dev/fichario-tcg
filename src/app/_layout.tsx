@@ -1,9 +1,10 @@
 import '@/lib/background'; // registra a tarefa de coleta diária (precisa rodar no carregamento)
 
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider, type ErrorBoundaryProps } from 'expo-router';
+import { DarkTheme, Stack, ThemeProvider, type ErrorBoundaryProps } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
-import { AppState, Pressable, ScrollView, Text, useColorScheme } from 'react-native';
+import { AppState, Pressable, ScrollView, Text } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { Colors } from '@/constants/theme';
@@ -12,6 +13,7 @@ import { getDb } from '@/lib/db';
 import { LigaProvider } from '@/lib/liga';
 import { runDailyCollection } from '@/lib/daily';
 import { getSeries } from '@/lib/tcgdex';
+import { ensureCatalog, setsWithAbbr } from '@/lib/catalog';
 import { SettingsProvider } from '@/lib/settings';
 
 SplashScreen.preventAutoHideAsync();
@@ -25,6 +27,8 @@ function useDailyCollection() {
     // Ao abrir (e ao voltar para o app), completa a coleta de MYP/TCGdex do dia, se faltar algo
     const run = () => runDailyCollection().catch(() => {});
     getSeries().catch(() => {}); // deixa o catálogo pronto para o scanner
+    ensureCatalog().catch(() => {});
+    setsWithAbbr().catch(() => {});
     const t = setTimeout(run, 2500);
     const sub = AppState.addEventListener('change', (s) => s === 'active' && run());
     return () => {
@@ -35,15 +39,16 @@ function useDailyCollection() {
 }
 
 export default function RootLayout() {
-  const scheme = useColorScheme();
-  const c = Colors[scheme === 'dark' ? 'dark' : 'light'];
+  const c = Colors.dark;
   useDailyCollection();
+  const theme = { ...DarkTheme, colors: { ...DarkTheme.colors, primary: c.accent, background: c.background, card: c.background, text: c.text, border: c.border } };
 
   return (
     <SafeAreaProvider>
-      <ThemeProvider value={scheme === 'dark' ? DarkTheme : DefaultTheme}>
+      <ThemeProvider value={theme}>
         <SettingsProvider>
           <LigaProvider>
+            <StatusBar style="light" />
             <Stack
               screenOptions={{
                 headerStyle: { backgroundColor: c.background },
@@ -68,10 +73,10 @@ export default function RootLayout() {
 /** Se alguma tela quebrar, mostra o erro em vez de fechar o app (ajuda a diagnosticar). */
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   return (
-    <ScrollView contentContainerStyle={{ padding: 24, paddingTop: 72, gap: 12 }}>
-      <Text style={{ fontSize: 22, fontWeight: '800' }}>Algo deu errado</Text>
-      <Text selectable style={{ fontFamily: 'monospace', fontSize: 12 }}>{String(error?.stack ?? error)}</Text>
-      <Pressable onPress={retry} style={{ backgroundColor: '#F7C934', padding: 14, borderRadius: 12, alignItems: 'center' }}>
+    <ScrollView style={{ backgroundColor: '#0B0A14' }} contentContainerStyle={{ padding: 24, paddingTop: 72, gap: 12 }}>
+      <Text style={{ fontSize: 22, fontWeight: '800', color: '#F5F3FF' }}>Algo deu errado</Text>
+      <Text selectable style={{ fontFamily: 'monospace', fontSize: 12, color: '#A9A3C9' }}>{String(error?.stack ?? error)}</Text>
+      <Pressable onPress={retry} style={{ backgroundColor: '#FACC15', padding: 14, borderRadius: 12, alignItems: 'center' }}>
         <Text style={{ fontWeight: '700' }}>Tentar de novo</Text>
       </Pressable>
     </ScrollView>

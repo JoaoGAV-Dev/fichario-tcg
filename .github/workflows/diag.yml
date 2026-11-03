@@ -55,6 +55,9 @@ jobs:
             adb shell am start -W -n com.seunome.fichariotcg/.MainActivity || true
             sleep 20
             adb exec-out screencap -p > diag/01-vazio.png || true
+            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://dev-ocr" com.seunome.fichariotcg || true
+            sleep 70
+            adb exec-out screencap -p > diag/00-ocr.png || true
             adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://dev-seed" com.seunome.fichariotcg || true
             sleep 75
             adb exec-out screencap -p > diag/02-coleta.png || true

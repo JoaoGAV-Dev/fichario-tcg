@@ -71,6 +71,20 @@ const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS myp_set_slug ON myp_set(slug, fetched_on);
   CREATE INDEX IF NOT EXISTS snapshots_source ON snapshots(source, captured_on);
   `,
+  // v4: catálogo local de todas as cartas em PT (busca instantânea e offline no scanner)
+  `
+  CREATE TABLE IF NOT EXISTS catalog (
+    id TEXT PRIMARY KEY,
+    set_id TEXT NOT NULL,
+    local_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    name_norm TEXT NOT NULL,
+    image TEXT
+  );
+  CREATE INDEX IF NOT EXISTS catalog_local ON catalog(local_id);
+  CREATE INDEX IF NOT EXISTS catalog_name ON catalog(name_norm);
+  CREATE INDEX IF NOT EXISTS catalog_set ON catalog(set_id, local_id);
+  `,
 ];
 
 async function open(): Promise<SQLiteDatabase> {

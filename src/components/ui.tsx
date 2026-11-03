@@ -3,7 +3,9 @@ import {
   ActivityIndicator, Pressable, StyleSheet, Text, View,
   type StyleProp, type TextProps, type TextStyle, type ViewStyle,
 } from 'react-native';
-import Svg, { Circle, Line, Polygon, Polyline, Text as SvgText } from 'react-native-svg';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import Svg, { Circle, Defs, Line, LinearGradient as SvgGradient, Polygon, Polyline, Stop, Text as SvgText } from 'react-native-svg';
 
 import { useTheme } from '@/hooks/use-theme';
 import { brl, pctLabel } from '@/lib/format';
@@ -21,22 +23,57 @@ export function Panel({ children, style }: { children: ReactNode; style?: StyleP
 }
 
 export function Button({
-  title, onPress, kind = 'primary', loading, disabled, style,
+  title, onPress, kind = 'primary', loading, disabled, style, icon,
 }: {
-  title: string; onPress: () => void; kind?: 'primary' | 'secondary' | 'ghost';
-  loading?: boolean; disabled?: boolean; style?: StyleProp<ViewStyle>;
+  title: string; onPress: () => void; kind?: 'primary' | 'secondary' | 'ghost' | 'highlight';
+  loading?: boolean; disabled?: boolean; style?: StyleProp<ViewStyle>; icon?: IconName;
 }) {
   const t = useTheme();
-  const bg = kind === 'primary' ? t.accent : kind === 'secondary' ? t.backgroundElement : 'transparent';
-  const fg = kind === 'primary' ? t.accentText : t.text;
+  const bg = kind === 'primary' ? t.accent : kind === 'highlight' ? t.highlight : kind === 'secondary' ? t.backgroundElement : 'transparent';
+  const fg = kind === 'primary' ? t.accentText : kind === 'highlight' ? t.highlightText : t.text;
   return (
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
       disabled={disabled || loading}
-      style={({ pressed }) => [styles.btn, { backgroundColor: bg, opacity: disabled ? 0.45 : pressed ? 0.8 : 1 }, style]}>
-      {loading ? <ActivityIndicator color={fg} /> : <Text style={[styles.btnText, { color: fg }]}>{title}</Text>}
+      style={({ pressed }) => [styles.btn, { backgroundColor: bg, opacity: disabled ? 0.45 : pressed ? 0.8 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] }, style]}>
+      {loading ? <ActivityIndicator color={fg} /> : (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          {icon ? <MaterialCommunityIcons name={icon} size={18} color={fg} /> : null}
+          <Text style={[styles.btnText, { color: fg }]}>{title}</Text>
+        </View>
+      )}
     </Pressable>
+  );
+}
+
+export type IconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+
+/** Título de seção com ícone colorido. */
+export function SectionTitle({ icon, title, right }: { icon: IconName; title: string; right?: ReactNode }) {
+  const t = useTheme();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+      <View style={[styles.sectionIcon, { backgroundColor: t.backgroundSelected }]}>
+        <MaterialCommunityIcons name={icon} size={18} color={t.highlight} />
+      </View>
+      <Text style={[styles.h2, { color: t.text, flex: 1 }]}>{title}</Text>
+      {right}
+    </View>
+  );
+}
+
+/** Painel com gradiente (destaques). */
+export function HeroPanel({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
+  const t = useTheme();
+  return (
+    <LinearGradient
+      colors={[t.heroFrom, t.heroTo]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={[styles.panel, { borderColor: '#7C3AED66' }, style]}>
+      {children}
+    </LinearGradient>
   );
 }
 
@@ -45,8 +82,8 @@ export function Chip({ label, active, onPress }: { label: string; active?: boole
   return (
     <Pressable
       onPress={onPress}
-      style={[styles.chip, { backgroundColor: active ? t.text : t.backgroundElement }]}>
-      <Text style={[styles.chipText, { color: active ? t.background : t.text }]}>{label}</Text>
+      style={[styles.chip, { backgroundColor: active ? t.accent : t.backgroundElement, borderColor: active ? t.accent : t.border }]}>
+      <Text style={[styles.chipText, { color: active ? t.accentText : t.text }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -55,7 +92,8 @@ export function Chip({ label, active, onPress }: { label: string; active?: boole
 export function ChangePill({ pct, style, compact }: { pct: number | null; style?: StyleProp<TextStyle>; compact?: boolean }) {
   const t = useTheme();
   const color = pct === null ? t.muted : pct > 0 ? t.up : pct < 0 ? t.down : t.textSecondary;
-  return <Text style={[styles.pill, { color }, style]}>{pct === null && compact ? '—' : pctLabel(pct)}</Text>;
+  const arrow = pct === null || pct === 0 ? '' : pct > 0 ? '▲ ' : '▼ ';
+  return <Text style={[styles.pill, { color }, style]}>{pct === null && compact ? '—' : `${arrow}${pctLabel(pct)}`}</Text>;
 }
 
 export function Loading({ label }: { label?: string }) {
@@ -123,7 +161,13 @@ export function PriceChart({
           {fmt(v).replace(',00', '')}
         </SvgText>
       ))}
-      <Polygon points={area} fill={stroke} fillOpacity={0.12} />
+      <Defs>
+        <SvgGradient id="area" x1="0" y1="0" x2="0" y2="1">
+          <Stop offset="0" stopColor={stroke} stopOpacity={0.35} />
+          <Stop offset="1" stopColor={stroke} stopOpacity={0} />
+        </SvgGradient>
+      </Defs>
+      <Polygon points={area} fill="url(#area)" />
       <Polyline points={line} fill="none" stroke={stroke} strokeWidth={2.2} strokeLinejoin="round" />
       <Circle cx={x(points.length - 1)} cy={y(points[points.length - 1].value)} r={3.5} fill={stroke} />
       {[0, mid, points.length - 1].map((i, k) => (
@@ -142,10 +186,11 @@ const styles = StyleSheet.create({
   small: { fontSize: 13 },
   label: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6 },
   money: { fontSize: 32, fontWeight: '800', fontVariant: ['tabular-nums'] },
-  panel: { borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, padding: 16 },
-  btn: { borderRadius: 12, paddingVertical: 13, paddingHorizontal: 18, alignItems: 'center', justifyContent: 'center' },
+  panel: { borderRadius: 20, borderWidth: 1, padding: 16 },
+  btn: { borderRadius: 14, paddingVertical: 13, paddingHorizontal: 18, alignItems: 'center', justifyContent: 'center' },
+  sectionIcon: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   btnText: { fontSize: 15, fontWeight: '700' },
-  chip: { borderRadius: 999, paddingVertical: 7, paddingHorizontal: 13 },
+  chip: { borderRadius: 999, paddingVertical: 7, paddingHorizontal: 13, borderWidth: 1 },
   chipText: { fontSize: 13, fontWeight: '600' },
   pill: { fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] },
   center: { alignItems: 'center', justifyContent: 'center', padding: 16 },

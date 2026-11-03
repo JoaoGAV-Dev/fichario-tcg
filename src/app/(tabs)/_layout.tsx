@@ -8,7 +8,8 @@ export default function TabsLayout() {
     <NativeTabs
       backgroundColor={t.background}
       indicatorColor={t.backgroundSelected}
-      labelStyle={{ selected: { color: t.text } }}>
+      iconColor={{ default: t.textSecondary, selected: t.highlight }}
+      labelStyle={{ default: { color: t.textSecondary }, selected: { color: t.text } }}>
       <NativeTabs.Trigger name="index">
         <NativeTabs.Trigger.Label>Coleção</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="square.stack.3d.up.fill" md="style" />
