@@ -1,0 +1,20 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.cardocr'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.cardocr"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+}
+
+dependencies {
+  // OCR do Google ML Kit com o modelo embutido no app: funciona offline e sem custo.
+  implementation 'com.google.mlkit:text-recognition:16.0.1'
+}

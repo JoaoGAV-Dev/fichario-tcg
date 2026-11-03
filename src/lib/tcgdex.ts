@@ -1,0 +1,118 @@
+// Catálogo de cartas e coleções via TCGdex (gratuito, open source, com português).
+// Docs: https://tcgdex.dev
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+export type Lang = 'pt' | 'en' | 'ja' | 'zh-tw';
+export const CATALOG_LANG: Lang = 'pt'; // trocar/expandir aqui quando adicionar outros idiomas
+
+const API = 'https://api.tcgdex.net/v2';
+const DAY = 24 * 60 * 60 * 1000;
+
+export interface SetBrief {
+  id: string;
+  name: string;
+  logo?: string;
+  symbol?: string;
+  cardCount: { official: number; total: number };
+}
+export interface Serie {
+  id: string;
+  name: string;
+  logo?: string;
+  sets: SetBrief[];
+}
+export interface CardBrief {
+  id: string;
+  localId: string;
+  name: string;
+  image?: string;
+}
+export interface SetDetail extends SetBrief {
+  releaseDate?: string;
+  serie: { id: string; name: string };
+  abbreviation?: { official?: string };
+  cards: CardBrief[];
+}
+export interface CardDetail extends CardBrief {
+  rarity?: string;
+  illustrator?: string;
+  category?: string;
+  set: SetBrief;
+  variants?: { normal?: boolean; reverse?: boolean; holo?: boolean; firstEdition?: boolean; wPromo?: boolean };
+  pricing?: {
+    cardmarket?: { avg?: number; low?: number; trend?: number; avg1?: number; avg7?: number; avg30?: number; unit?: string };
+    tcgplayer?: Record<string, any>;
+  };
+}
+
+// Séries que são do jogo digital (TCG Pocket) e não existem como carta física
+const DIGITAL_SERIES = new Set(['tcgp']);
+
+const memory = new Map<string, unknown>();
+
+async function cached<T>(key: string, ttl: number, load: () => Promise<T>): Promise<T> {
+  if (memory.has(key)) return memory.get(key) as T;
+  try {
+    const raw = await AsyncStorage.getItem(`tcgdex:${key}`);
+    if (raw) {
+      const { at, value } = JSON.parse(raw);
+      if (Date.now() - at < ttl) {
+        memory.set(key, value);
+        return value as T;
+      }
+    }
+  } catch {}
+  const value = await load();
+  memory.set(key, value);
+  AsyncStorage.setItem(`tcgdex:${key}`, JSON.stringify({ at: Date.now(), value })).catch(() => {});
+  return value;
+}
+
+async function get<T>(path: string): Promise<T> {
+  const res = await fetch(`${API}${path}`);
+  if (!res.ok) throw new Error(`TCGdex ${res.status} em ${path}`);
+  return res.json();
+}
+
+/** Todas as séries físicas com suas coleções, da mais nova para a mais antiga. */
+export function getSeries(lang: Lang = CATALOG_LANG): Promise<Serie[]> {
+  return cached(`series:${lang}`, 3 * DAY, async () => {
+    const list = await get<{ id: string; name: string; logo?: string }[]>(`/${lang}/series`);
+    const physical = list.filter((s) => !DIGITAL_SERIES.has(s.id));
+    const full = await Promise.all(physical.map((s) => get<Serie>(`/${lang}/series/${s.id}`)));
+    return full
+      .map((s) => ({ id: s.id, name: s.name, logo: s.logo, sets: [...(s.sets ?? [])].reverse() }))
+      .reverse();
+  });
+}
+
+export function getSet(setId: string, lang: Lang = CATALOG_LANG): Promise<SetDetail> {
+  return cached(`set:${lang}:${setId}`, 3 * DAY, () => get<SetDetail>(`/${lang}/sets/${encodeURIComponent(setId)}`));
+}
+
+export function getCard(cardId: string, lang: Lang = CATALOG_LANG): Promise<CardDetail> {
+  return cached(`card:${lang}:${cardId}`, 1 * DAY, () => get<CardDetail>(`/${lang}/cards/${encodeURIComponent(cardId)}`));
+}
+
+/** Busca o card sem cache e sem lançar erro (para descobrir se um id existe). */
+export async function tryCard(cardId: string, lang: Lang = CATALOG_LANG): Promise<CardDetail | null> {
+  try {
+    return await getCard(cardId, lang);
+  } catch {
+    return null;
+  }
+}
+
+/** Imagem da carta. Cartas sem scan em PT caem para a imagem em inglês. */
+export function cardImage(card: { id: string; image?: string }, quality: 'low' | 'high' = 'low'): string {
+  if (card.image) return `${card.image}/${quality}.webp`;
+  // id "sv03-125" -> https://assets.tcgdex.net/en/<serie>/<set>/<num> não é derivável sem a série;
+  // a tela usa o fallback de "sem imagem" nesse caso.
+  return '';
+}
+
+export function setLogo(set: { logo?: string; symbol?: string }): string | undefined {
+  if (set.logo) return `${set.logo}.webp`;
+  if (set.symbol) return `${set.symbol}.webp`;
+  return undefined;
+}
