@@ -16,22 +16,22 @@ Todo push na branch `main` gera um APK novo automaticamente (GitHub Actions → 
 | Parte | Fonte | Como |
 |---|---|---|
 | Coleções e cartas (PT-BR) | TCGdex | API aberta, sem chave |
-| Scanner | Google ML Kit, no aparelho | A câmera lê o tempo todo. Ao achar sigla + número (`OBF PT 125/197`), identifica a carta sozinho |
-| Preço MYP | mypcards.com | Busca `125/197`, confere a sigla e lê menor, médio e último vendido |
+| Scanner | Google ML Kit, no aparelho | Leitura contínua. Reconheceu o rodapé (`OBF PT 125/197`), adiciona na coleção e segue para a próxima |
+| Preço na hora | Cache local + MYP por coleção + cotação | Na 1ª carta de uma coleção, baixa o menor preço de **todas** as cartas dela (~1 s); as próximas aparecem instantâneas |
+| Preço MYP completo | mypcards.com | Menor, médio e último vendido (em segundo plano) |
 | Preço Liga | ligapokemon.com.br | Navegador escondido dentro do app (a Liga bloqueia robôs com Cloudflare) |
-| Referência internacional | Cardmarket (€) e TCGplayer (US$) | Vem junto da TCGdex |
-| Histórico 1/3/6/12 meses | SQLite no celular | Uma "foto" diária do preço de cada carta |
+| Referência internacional | TCGplayer (US$) e Cardmarket (€) | Convertidos para R$ pela cotação do dia (AwesomeAPI / Frankfurter) |
+| Histórico longo | TCGplayer | 1 ano, semana a semana, desde o primeiro dia |
+| Histórico em R$ | SQLite no celular | Uma "foto" diária. Antes dela existir, o valor é **estimado**: preço BR de hoje × variação da carta nos EUA (sempre marcado) |
 
-**Coleta diária:**
-- **MYP e TCGdex:** atualizam ao abrir o app e em segundo plano, várias vezes ao dia, mas no máximo uma coleta por carta por dia.
-- **Liga:** atualiza escondida uma vez por dia, ao abrir o app. Se ela pedir "Confirme que é humano", o navegador aparece; você toca na caixa e ele volta a rodar escondido.
-
-> O histórico começa no dia em que você instala. Nem a Liga nem a MYP oferecem histórico aberto.
-> Enquanto isso, a tela da carta mostra a tendência de 30 dias do Cardmarket.
-
-**Samsung:** em Configurações → Apps → Fichário TCG → Bateria, escolha **Sem restrições**. Sem isso, a coleta em segundo plano pode não rodar.
-
-**Backup:** os dados ficam só no celular. Use Ajustes → Exportar backup de vez em quando.
+### Painel (inspirado no Deck Certo)
+- Valor da coleção e a variação dos últimos 30 dias.
+- Cartas que entraram no período.
+- Coleções com capa, progresso e valor.
+- Mais valiosas.
+- Evolução do valor (7/30/90 dias/tudo, com filtro por coleção).
+- Movimentações (subiram/caíram).
+- Aba Pokédex e busca por nome.
 
 ## Desenvolvimento
 ```bash
