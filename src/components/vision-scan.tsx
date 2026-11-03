@@ -355,11 +355,14 @@ export default function VisionScan({ onUseOcr }: { onUseOcr: () => void }) {
                   {last.price != null && last.price > ENERGY_MAX && isBasicEnergy(last.info)
                     ? <Txt variant="small" style={{ color: t.highlight }}>  confira a coleção</Txt> : null}
                 </Txt>
+                {last.priceLabel && last.price != null ? <Txt variant="small" numberOfLines={1}>{last.priceLabel}</Txt> : null}
                 <View style={styles.links}>
                   {last.itemId !== null ? (
                     <Pressable hitSlop={8} onPress={() => changeQty(last, -1)}>
                       <Txt variant="small" style={{ color: t.textSecondary, fontWeight: '700' }}>Desfazer</Txt>
                     </Pressable>
+                  ) : last.key.startsWith('t-') && prefs.mode === 'auto' ? (
+                    <Txt variant="small">Adicionando…</Txt>
                   ) : (
                     <Txt variant="small">Não adicionada (só consulta)</Txt>
                   )}
