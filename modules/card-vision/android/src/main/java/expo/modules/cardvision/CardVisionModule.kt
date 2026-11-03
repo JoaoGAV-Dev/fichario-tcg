@@ -17,6 +17,7 @@ import java.io.File
  * Reconhecimento de cartas pela imagem, no aparelho: câmera com contorno ao vivo (CardScanner)
  * e reconhecimento de uma foto da galeria.
  */
+@android.annotation.SuppressLint("DiscouragedApi")
 class CardVisionModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("CardVision")
@@ -79,9 +80,18 @@ class CardVisionModule : Module() {
   private fun toFile(p: String): File = File(if (p.startsWith("file:")) Uri.parse(p).path!! else p)
 
   private fun loadBitmap(ctx: Context, uri: Uri, maxSide: Int): Bitmap {
+    val raw = uri.toString()
+    // imagem embutida no APK (expo-asset em release devolve só o nome do recurso)
+    val resId = if (uri.scheme == null && !raw.startsWith("/")) {
+      ctx.resources.getIdentifier(raw, "drawable", ctx.packageName).takeIf { it != 0 }
+        ?: ctx.resources.getIdentifier(raw, "raw", ctx.packageName)
+    } else 0
     val open = {
-      if (uri.scheme == null || uri.scheme == "file") File(uri.path ?: uri.toString()).inputStream()
-      else ctx.contentResolver.openInputStream(uri) ?: throw CodedException("ERR_IMAGE", "Não consegui abrir a imagem", null)
+      when {
+        resId != 0 -> ctx.resources.openRawResource(resId)
+        uri.scheme == null || uri.scheme == "file" -> File(uri.path ?: raw).inputStream()
+        else -> ctx.contentResolver.openInputStream(uri) ?: throw CodedException("ERR_IMAGE", "Não consegui abrir a imagem", null)
+      }
     }
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     open().use { BitmapFactory.decodeStream(it, null, bounds) }
