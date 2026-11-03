@@ -1,3 +1,4 @@
+# Treino da rede (ver vision/train.py).
 # Treina a rede de reconhecimento nas próprias cartas (CPU do GitHub, de graça, ~3 h).
 # Só publica no banco do app (release cards-db) se ficar melhor que o atual.
 name: Treinar reconhecimento
