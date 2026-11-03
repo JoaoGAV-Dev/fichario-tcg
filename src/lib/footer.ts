@@ -65,6 +65,11 @@ export function parseCardFooter(input: string): FooterInfo {
       if (!info.setCodes.includes(t)) info.setCodes.push(t);
       continue;
     }
+    // Marca de regulamento colada na sigla ("GOBF", "JPOR", "IMEG") ou letra sobrando no fim ("OBFM")
+    if (/^[A-Z]{5}$/.test(t) || (/^[A-Z]{4}$/.test(t) && !info.setCodes.includes(t))) {
+      for (const v of [t.slice(1), t.slice(0, -1), t.slice(1, -1)]) if (v.length >= 2 && !info.setCodes.includes(v)) info.setCodes.push(v);
+      continue;
+    }
     // Sigla com dígito lido no lugar de letra ("P0R" -> "POR", "0BF" -> "OBF")
     if (/^[A-Z0-9]{2,4}$/.test(t) && (t.match(/[A-Z]/g) ?? []).length >= 2) {
       const fixed = t.replace(/0/g, 'O').replace(/1/g, 'I').replace(/5/g, 'S').replace(/8/g, 'B');

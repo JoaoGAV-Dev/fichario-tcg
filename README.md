@@ -16,7 +16,7 @@ Todo push na branch `main` gera um APK novo automaticamente (GitHub Actions → 
 | Parte | Fonte | Como |
 |---|---|---|
 | Coleções e cartas (PT-BR) | TCGdex | API aberta, sem chave |
-| Scanner | Google ML Kit, no aparelho | Leitura contínua. Reconheceu o rodapé (`OBF PT 125/197`), adiciona na coleção e segue para a próxima |
+| Scanner | Google ML Kit, no aparelho | Leitura contínua em 2 passes (carta inteira para o **nome** + rodapé **ampliado 3×** para sigla/número), casada com o catálogo local de ~14 mil cartas PT e o índice de siglas. Aceita rodapé sem total (energias/promos) e marca de regulamento colada ("GOBF") |
 | Preço na hora | Cache local + MYP por coleção + cotação | Na 1ª carta de uma coleção, baixa o menor preço de **todas** as cartas dela (~1 s); as próximas aparecem instantâneas |
 | Preço MYP completo | mypcards.com | Menor, médio e último vendido (em segundo plano) |
 | Preço Liga | ligapokemon.com.br | Navegador escondido dentro do app (a Liga bloqueia robôs com Cloudflare) |

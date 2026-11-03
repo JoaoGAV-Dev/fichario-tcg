@@ -13,7 +13,7 @@ import { readCard } from '@/lib/ocr';
 
 const TESTS = [
   { id: 'me03-072', url: 'https://assets.tcgdex.net/pt/me/me03/072/high.png' }, // Busca de Energia (POR 072/088)
-  { id: 'mee-007', url: 'https://assets.tcgdex.net/pt/me/mee/007/high.png' }, // Energia Básica
+  { id: 'mee-007', url: 'https://assets.tcgdex.net/en/me/mee/007/high.png' }, // Energia Básica (imagem EN)
   { id: 'me03-038', url: 'https://assets.tcgdex.net/pt/me/me03/038/high.png' }, // Probopass
   { id: 'sv03-125', url: 'https://assets.tcgdex.net/pt/sv/sv03/125/high.png' }, // Charizard ex
 ];

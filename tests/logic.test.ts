@@ -124,6 +124,16 @@ describe('casamento com o catálogo', () => {
     expect(r.map((c) => c.card.id)).toEqual(['me03-072', 'sv01-172']);
     expect(r.every((c) => !c.sure)).toBe(true);
   });
+  it('marca de regulamento colada na sigla ("JPOR", "GOBFm")', () => {
+    const r = rankCandidates(parseCardFooter('JPOR o 072/088'), 'Busca de Energia', [row('me03-072', 'Busca de Energia')], sets);
+    expect(r[0]).toMatchObject({ abbrMatch: true, sure: true });
+    expect(parseCardFooter('GOBFm 125/197').setCodes).toContain('OBF');
+  });
+  it('número lido errado com nome diferente: não adiciona sozinho', () => {
+    const r = rankCandidates(parseCardFooter('25/197'), 'Charizard ex', [row('sv01-25', 'Tiflosion')],
+      new Map([...sets, ['sv01', { ...sets.get('sv01')!, cardCount: { official: 197, total: 220 } }]]));
+    expect(r.every((c) => !c.sure)).toBe(true);
+  });
   it('sem sigla e mesmo total em 2 coleções: pergunta', () => {
     const r = rankCandidates(parseCardFooter('125/197'), null, [row('sv03-125', 'Charizard ex'), row('ppsx-125', 'Charizard ex')], sets);
     expect(r).toHaveLength(2);
@@ -151,6 +161,7 @@ describe('rodapé a partir das linhas do OCR', () => {
     const lines = [L('Item', 10, 20, 14), L('TREINADOR', 200, 20, 16), L('Busca de Energia', 10, 50, 30), L('Procure por uma carta', 10, 600, 14)];
     expect(cardNameFromLines(lines, 1000)).toBe('Busca de Energia');
     expect(cardNameFromLines([L('Dewgong', 40, 30, 40), L('PS 130', 400, 30, 30)], 1000)).toBe('Dewgong');
+    expect(cardNameFromLines([L('Charizard ex330', 40, 30, 40)], 1000)).toBe('Charizard ex');
   });
 });
 

@@ -39,7 +39,7 @@ const NOT_NAME = /^(item|treinador|trainer|apoiador|est[aá]dio|ferramenta|pok[e
 export function cardNameFromLines(lines: OcrLine[], height: number): string | null {
   const top = lines
     .filter((l) => l.y + l.height / 2 < height * 0.22)
-    .map((l) => ({ ...l, text: l.text.replace(/\b(PS|HP)\s*\d+.*$/i, '').replace(/\s+\d{2,3}$/, '').trim() }))
+    .map((l) => ({ ...l, text: l.text.replace(/\b(PS|HP)\s*\d+.*$/i, '').replace(/\s*(PS|HP)?\s*\d{2,3}\s*$/i, '').replace(/(ex|EX|V|GX)\d{2,3}$/, '$1').trim() }))
     .filter((l) => l.text.length >= 3 && /[a-zà-ú]/i.test(l.text) && !NOT_NAME.test(l.text));
   if (!top.length) return null;
   return top.reduce((a, b) => (b.height > a.height ? b : a)).text;

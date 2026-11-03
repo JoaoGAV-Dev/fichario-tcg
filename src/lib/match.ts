@@ -12,6 +12,8 @@ export interface Candidate {
   sure: boolean;
 }
 
+const firstWord = (s: string) => s.split(' ').find((w) => w.length >= 3 && !['mega', 'dark', 'light'].includes(w)) ?? s;
+
 const levenshtein1 = (a: string, b: string) => {
   if (a.length !== b.length) return false;
   let diff = 0;
@@ -25,6 +27,11 @@ export function resolveCodes(codes: string[], known: Set<string>): string[] {
   for (const c of codes) {
     if (known.has(c)) {
       out.add(c);
+      continue;
+    }
+    // Letra da marca de regulamento colada antes ("JPOR" -> "POR")
+    if (c.length >= 4 && known.has(c.slice(1))) {
+      out.add(c.slice(1));
       continue;
     }
     const near = [...known].filter((k) => levenshtein1(c, k));
@@ -55,9 +62,11 @@ export function rankCandidates(
       const totalMatch = !!info?.total && (set.cardCount.official === info.total || set.cardCount.total === info.total);
       const rn = normName(r.name);
       const nameExact = !!nName && rn === nName;
-      const namePartial = !!nName && !nameExact && nName.length >= 4 && (rn.startsWith(nName) || nName.startsWith(rn));
+      const namePartial = !!nName && !nameExact && nName.length >= 4
+        && (rn.startsWith(nName) || nName.startsWith(rn) || firstWord(rn) === firstWord(nName));
+      const nameClash = !!nName && nName.length >= 4 && !nameExact && !namePartial;
       const score = (abbrMatch ? 100 : 0) + (totalMatch ? 50 : 0) + (nameExact ? 30 : namePartial ? 15 : 0) - set.order * 0.01;
-      return { r, set, abbrMatch, totalMatch, nameOk: nameExact || namePartial, score };
+      return { r, set, abbrMatch, totalMatch, nameOk: nameExact || namePartial, nameClash, score: score - (nameClash ? 40 : 0) };
     });
 
   let keep = scored;
@@ -71,7 +80,8 @@ export function rankCandidates(
   }
 
   keep.sort((a, b) => b.score - a.score);
-  const sureOne = keep.length === 1 && (keep[0].abbrMatch || keep[0].totalMatch || keep[0].nameOk);
+  // Leu um nome que não bate com a carta? Não adiciona sozinho (número pode ter sido lido errado).
+  const sureOne = keep.length === 1 && !keep[0].nameClash && (keep[0].abbrMatch || keep[0].totalMatch || keep[0].nameOk);
   return keep.slice(0, 12).map((s) => ({
     set: {
       id: s.set.id, name: s.set.name, abbreviation: s.set.abbr ? { official: s.set.abbr } : undefined,
@@ -80,7 +90,7 @@ export function rankCandidates(
     card: { id: s.r.id, localId: s.r.local_id, name: s.r.name, image: s.r.image ?? undefined },
     abbrMatch: s.abbrMatch,
     score: s.score,
-    sure: sureOne || (s.abbrMatch && keep.filter((k) => k.abbrMatch).length === 1),
+    sure: !s.nameClash && (sureOne || (s.abbrMatch && keep.filter((k) => k.abbrMatch).length === 1)),
   }));
 }
 
@@ -101,5 +111,13 @@ export async function findCandidates(info: FooterInfo | null, name: string | nul
       .flatMap((d) => d.cards.filter((c) => ids.includes(c.localId.toUpperCase()))
         .map((c) => ({ id: c.id, set_id: d.id, local_id: c.localId, name: c.name, image: c.image ?? null })));
   }
-  return rankCandidates(info, name, rows, sets);
+  let ranked = rankCandidates(info, name, rows, sets);
+  // O número não bateu com o nome lido (ex.: "25/197" em vez de "125/197")? Tenta pelo nome + sigla/total.
+  if (name && info?.number && !ranked.some((c) => c.sure)) {
+    const byName = rankCandidates({ ...info, number: null }, name, await catalogByName(name), sets)
+      .filter((c) => c.abbrMatch || (info.total && (c.set.cardCount.official === info.total || c.set.cardCount.total === info.total)));
+    if (byName.length === 1) ranked = [{ ...byName[0], sure: true }];
+    else if (byName.length > 1) ranked = byName;
+  }
+  return ranked;
 }
