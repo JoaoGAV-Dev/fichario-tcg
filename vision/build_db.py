@@ -516,8 +516,8 @@ def evaluate(db, names, syn_q, syn_truth, real, real_q, neg_q):
     correct = np.array([names[a] == names[b] for a, b in zip(t1, syn_truth)])
     neg = (neg_q @ db.T).max(1)
     # limiares: "min" deixa passar ~2% dos não-cartas; "strong" ~0,2%
-    tmin = float(np.quantile(neg, 0.98))
-    tstrong = float(max(tmin + 0.02, np.quantile(neg, 0.998)))
+    tmin = float(max(0.60, np.quantile(neg, 0.98)))  # piso de segurança
+    tstrong = float(max(tmin + 0.08, np.quantile(neg, 0.998)))
     res = []
     for r, Q in zip(real, real_q):
         s = Q @ db.T
