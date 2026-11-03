@@ -72,7 +72,7 @@ export default function Home() {
 
   if (!items) return <Loading label="Carregando sua coleção…" />;
 
-  const col = (width - 16 * 2 - 10) / 2;
+  const col = Math.floor((width - 16 * 2 - 10) / 2) - 1;
   const seriesDelta = series.length >= 2 ? series[series.length - 1].value - series[0].value : null;
   const seriesPct = series.length >= 2 && series[0].value ? ((series[series.length - 1].value - series[0].value) / series[0].value) * 100 : null;
   const moveList = moverTab === 'down' ? moves.down : moves.up;
@@ -279,10 +279,10 @@ export default function Home() {
   );
 }
 
-function Tile({ n, label, w, color }: { n: string; label: string; w: number; color?: string }) {
+function Tile({ n, label, color }: { n: string; label: string; w?: number; color?: string }) {
   const t = useTheme();
   return (
-    <View style={[styles.tile, { width: w, borderColor: t.border, backgroundColor: t.backgroundElement }]}>
+    <View style={[styles.tile, { borderColor: t.border, backgroundColor: t.backgroundElement }]}>
       <Txt style={{ fontSize: 24, fontWeight: '800', color: color ?? t.text }}>{n}</Txt>
       <Txt variant="small">{label}</Txt>
     </View>
@@ -322,10 +322,10 @@ const styles = StyleSheet.create({
   search: { flex: 1, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, fontSize: 14 },
   hero: { fontSize: 28, fontWeight: '800', letterSpacing: -0.5 },
   tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
-  tile: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 14, padding: 12, gap: 2 },
+  tile: { flexGrow: 1, flexBasis: '45%', borderWidth: StyleSheet.hairlineWidth, borderRadius: 14, padding: 12, gap: 2 },
   rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  setCard: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, padding: 10, gap: 8 },
+  setCard: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, padding: 10, gap: 8, overflow: 'hidden' },
   cover: { width: '100%', height: 96, borderRadius: 10 },
   bar: { flex: 1, height: 5, borderRadius: 3, overflow: 'hidden' },
   barFill: { height: 5, borderRadius: 3 },

@@ -250,7 +250,8 @@ export function LigaStatus() {
 
 const styles = StyleSheet.create({
   full: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, zIndex: 100, elevation: 100 },
-  hidden: { position: 'absolute', left: 0, top: 0, width: 360, height: 640, opacity: 0.01, zIndex: -1 },
+  // Escondido FORA da tela (não fica por baixo dos toques), mas com tamanho de celular para a página renderizar normal
+  hidden: { position: 'absolute', left: -2000, top: 0, width: 360, height: 640, opacity: 0.01 },
   bar: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 10 },
   title: { fontSize: 15, fontWeight: '700' },
   btn: { paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10 },
