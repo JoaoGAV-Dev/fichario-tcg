@@ -1,6 +1,7 @@
 // Scanner por imagem: só o retângulo da câmera (contorno da carta ao vivo) e, logo abaixo, a carta
 // reconhecida — imagem, nome e coleção bem grandes para conferir de primeira.
 // Modo (adicionar/consultar) e versão ficam em Ajustes.
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
@@ -25,6 +26,9 @@ import { scanPrefs, useScanPrefs } from '@/lib/scanprefs';
 import { useSettings } from '@/lib/settings';
 import { imgUrl, setIdOf, tryCard } from '@/lib/tcgdex';
 import { ensureVisionIndex, onVisionStatus, visionCard, visionStatus, type VisionStatus } from '@/lib/vision';
+
+/** Energia básica comum acima disso é quase certamente a impressão errada (antiga/rara). */
+const ENERGY_MAX = 15;
 
 /** Carta como o scanner mostra. */
 interface Info {
@@ -82,19 +86,37 @@ async function infosFor(ids: string[]): Promise<Map<string, Info>> {
   return out;
 }
 
+/** Impressão preferida de cada energia básica (aprendida quando a pessoa corrige o scanner). */
+let energyPrefs: Record<string, string> = {};
+AsyncStorage.getItem('energyPrefs').then((v) => {
+  if (v) energyPrefs = JSON.parse(v);
+}).catch(() => {});
+function rememberEnergy(info: Info) {
+  const fam = familyKey(info.name);
+  if (!fam.startsWith('energy:')) return;
+  energyPrefs = { ...energyPrefs, [fam]: info.id };
+  AsyncStorage.setItem('energyPrefs', JSON.stringify(energyPrefs)).catch(() => {});
+}
+export const isBasicEnergy = (i: Info) => familyKey(i.name).startsWith('energy:') && !i.secret;
+
 /**
- * Escolha final: a mais parecida; se outras da MESMA carta (mesmo nome / mesma energia básica) ficarem
+ * Escolha final: a mais parecida. Se outras da MESMA carta (mesmo nome / mesma energia básica) ficarem
  * praticamente empatadas, prefere a impressão comum (não secreta/dourada) e a mais recente.
+ * Energias básicas são quase idênticas entre coleções: a janela é maior e, se a pessoa já corrigiu
+ * uma vez, usa a impressão que ela escolheu.
  */
 function choose(ev: CardEvent, infos: Map<string, Info>): { pick: Info; score: number; alts: { info: Info; score: number }[] } | null {
   const top = infos.get(ev.id);
   if (!top) return null;
   const fam = familyKey(top.name);
+  const energy = fam.startsWith('energy:');
+  const learned = energy ? energyPrefs[fam] : undefined;
+  const learnedHit = learned ? ev.matches.find((m) => m.id === learned && m.score >= ev.score - 0.12) : undefined;
   const tied = ev.matches
-    .filter((m) => infos.has(m.id) && m.score >= ev.score - 0.03 && familyKey(infos.get(m.id)!.name) === fam)
+    .filter((m) => infos.has(m.id) && m.score >= ev.score - (energy ? 0.08 : 0.03) && familyKey(infos.get(m.id)!.name) === fam)
     .map((m) => ({ info: infos.get(m.id)!, score: m.score }));
   tied.sort((a, b) => Number(a.info.secret) - Number(b.info.secret) || b.info.release.localeCompare(a.info.release) || b.score - a.score);
-  const pick = tied[0]?.info ?? top;
+  const pick = (learnedHit && infos.get(learnedHit.id)) || tied[0]?.info || top;
   const alts = ev.matches
     .filter((m) => m.id !== pick.id && infos.has(m.id) && m.score >= ev.score - 0.1)
     .map((m) => ({ info: infos.get(m.id)!, score: m.score }));
@@ -215,6 +237,7 @@ export default function VisionScan({ onUseOcr }: { onUseOcr: () => void }) {
   /** Trocar pela carta certa (desfaz a atual e adiciona a escolhida). */
   async function switchTo(r: Row, alt: { info: Info; score: number }) {
     setShowAlts(false);
+    rememberEnergy(alt.info);
     if (r.itemId !== null) {
       const cur = await getItem(r.itemId);
       await setQuantity(r.itemId, Math.max(0, (cur?.quantity ?? 1) - 1));
@@ -329,6 +352,8 @@ export default function VisionScan({ onUseOcr }: { onUseOcr: () => void }) {
                 </Txt>
                 <Txt style={{ fontWeight: '900', fontSize: 20, color: t.up, marginTop: 2 }}>
                   {last.price === undefined ? '…' : last.price === null ? 'sem preço' : brl(last.price)}
+                  {last.price != null && last.price > ENERGY_MAX && isBasicEnergy(last.info)
+                    ? <Txt variant="small" style={{ color: t.highlight }}>  confira a coleção</Txt> : null}
                 </Txt>
                 <View style={styles.links}>
                   {last.itemId !== null ? (
