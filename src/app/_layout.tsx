@@ -1,9 +1,9 @@
 import '@/lib/background'; // registra a tarefa de coleta diária (precisa rodar no carregamento)
 
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider, type ErrorBoundaryProps } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
-import { AppState, useColorScheme } from 'react-native';
+import { AppState, Pressable, ScrollView, Text, useColorScheme } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { Colors } from '@/constants/theme';
@@ -58,5 +58,18 @@ export default function RootLayout() {
         </SettingsProvider>
       </ThemeProvider>
     </SafeAreaProvider>
+  );
+}
+
+/** Se alguma tela quebrar, mostra o erro em vez de fechar o app (ajuda a diagnosticar). */
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  return (
+    <ScrollView contentContainerStyle={{ padding: 24, paddingTop: 72, gap: 12 }}>
+      <Text style={{ fontSize: 22, fontWeight: '800' }}>Algo deu errado</Text>
+      <Text selectable style={{ fontFamily: 'monospace', fontSize: 12 }}>{String(error?.stack ?? error)}</Text>
+      <Pressable onPress={retry} style={{ backgroundColor: '#F7C934', padding: 14, borderRadius: 12, alignItems: 'center' }}>
+        <Text style={{ fontWeight: '700' }}>Tentar de novo</Text>
+      </Pressable>
+    </ScrollView>
   );
 }

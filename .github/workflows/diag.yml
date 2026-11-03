@@ -1,0 +1,68 @@
+# Diagnóstico: compila para emulador (x86_64), instala, abre o app e publica o log (logcat) e um print.
+name: Diagnóstico no emulador
+
+on:
+  push:
+    branches: [diag]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      BUILD_NUMBER: ${{ github.run_number }}
+      CI: "1"
+      EXPO_NO_TELEMETRY: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - run: npm ci
+      - run: npx expo prebuild --platform android --no-install --clean
+      - name: Compilar APK x86_64
+        working-directory: android
+        run: ./gradlew assembleRelease -PreactNativeArchitectures=x86_64 --no-daemon
+      - name: Habilitar KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Rodar no emulador
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated
+          disable-animations: true
+          script: |
+            mkdir -p diag
+            adb install -r android/app/build/outputs/apk/release/app-release.apk
+            adb logcat -c
+            adb shell am start -W -n com.seunome.fichariotcg/.MainActivity || true
+            sleep 30
+            adb exec-out screencap -p > diag/tela-inicial.png || true
+            (adb shell pidof com.seunome.fichariotcg && echo "APP RODANDO") > diag/status.txt || echo "APP FECHOU" > diag/status.txt
+            adb logcat -d > diag/logcat-completo.txt
+            adb logcat -d -s AndroidRuntime:E ReactNativeJS:V ReactNative:V Expo:V ExpoModulesCore:V DEBUG:V libc:V > diag/logcat-app.txt || true
+      - name: Publicar diagnóstico
+        if: always()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: diag-${{ github.run_number }}
+          name: Diagnóstico ${{ github.run_number }}
+          prerelease: true
+          make_latest: false
+          files: diag/*
