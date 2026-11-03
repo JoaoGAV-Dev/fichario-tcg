@@ -103,7 +103,7 @@ export default function CollectionScreen() {
           ))}
         </View>
         <View style={styles.rowBetween}>
-          <Txt variant="small">
+          <Txt variant="small" style={{ flex: 1 }}>
             {sel && sel.compared
               ? `${brl(sel.valueThen)} → ${brl(sel.valueNow)} (${sel.compared} de ${sel.total} cartas comparáveis)`
               : 'Ainda não há coleta tão antiga para comparar.'}

@@ -10,7 +10,7 @@ export default function TabsLayout() {
       indicatorColor={t.backgroundSelected}
       labelStyle={{ selected: { color: t.text } }}>
       <NativeTabs.Trigger name="index">
-        <NativeTabs.Trigger.Label>Minha coleção</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>Fichário</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="square.stack.3d.up.fill" md="style" />
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="scan">
