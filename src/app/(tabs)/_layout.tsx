@@ -10,7 +10,7 @@ export default function TabsLayout() {
       indicatorColor={t.backgroundSelected}
       labelStyle={{ selected: { color: t.text } }}>
       <NativeTabs.Trigger name="index">
-        <NativeTabs.Trigger.Label>Fichário</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>Coleção</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="square.stack.3d.up.fill" md="style" />
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="scan">
@@ -18,7 +18,7 @@ export default function TabsLayout() {
         <NativeTabs.Trigger.Icon sf="camera.viewfinder" md="photo_camera" />
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="sets">
-        <NativeTabs.Trigger.Label>Coleções</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>Explorar</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="books.vertical.fill" md="collections_bookmark" />
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="settings">

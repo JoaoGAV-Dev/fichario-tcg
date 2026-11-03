@@ -116,3 +116,29 @@ export function setLogo(set: { logo?: string; symbol?: string }): string | undef
   if (set.symbol) return `${set.symbol}.webp`;
   return undefined;
 }
+
+/** Índice de todas as coleções físicas (id -> coleção + ordem de lançamento, 0 = mais nova). */
+export async function setIndex(): Promise<Map<string, SetBrief & { order: number; serie: string }>> {
+  const series = await getSeries();
+  const map = new Map<string, SetBrief & { order: number; serie: string }>();
+  let order = 0;
+  for (const s of series) for (const set of s.sets) map.set(set.id, { ...set, order: order++, serie: s.name });
+  return map;
+}
+
+/** "sv03-125" -> "sv03"; "30th-c-001" -> "30th-c" */
+export const setIdOf = (cardId: string) => cardId.slice(0, cardId.lastIndexOf('-'));
+
+/** Busca cartas pelo nome (em português). */
+export async function searchCards(name: string, lang: Lang = CATALOG_LANG): Promise<CardBrief[]> {
+  const q = name.trim();
+  if (q.length < 2) return [];
+  return cached(`search:${lang}:${q.toLowerCase()}`, 1 * DAY, () =>
+    get<CardBrief[]>(`/${lang}/cards?name=${encodeURIComponent(q)}`),
+  );
+}
+
+/** Todas as cartas de um Pokémon (pelo número da Pokédex). */
+export function cardsByDex(dexId: number, lang: Lang = CATALOG_LANG): Promise<CardBrief[]> {
+  return cached(`dex:${lang}:${dexId}`, 3 * DAY, () => get<CardBrief[]>(`/${lang}/cards?dexId=eq:${dexId}`));
+}

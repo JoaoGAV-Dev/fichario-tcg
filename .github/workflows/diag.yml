@@ -53,23 +53,27 @@ jobs:
             adb shell pm grant com.seunome.fichariotcg android.permission.CAMERA || true
             adb logcat -c
             adb shell am start -W -n com.seunome.fichariotcg/.MainActivity || true
-            sleep 25
-            adb exec-out screencap -p > diag/1-colecao.png || true
-            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://sets" com.seunome.fichariotcg || true
-            sleep 15
-            adb exec-out screencap -p > diag/2-colecoes.png || true
-            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://set/sv03" com.seunome.fichariotcg || true
-            sleep 15
-            adb exec-out screencap -p > diag/3-set.png || true
+            sleep 20
+            adb exec-out screencap -p > diag/01-vazio.png || true
+            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://dev-seed" com.seunome.fichariotcg || true
+            sleep 60
+            adb exec-out screencap -p > diag/02-painel.png || true
+            adb shell input swipe 160 560 160 120 600; sleep 3; adb exec-out screencap -p > diag/03-painel.png || true
+            adb shell input swipe 160 560 160 120 600; sleep 3; adb exec-out screencap -p > diag/04-painel.png || true
+            adb shell input swipe 160 560 160 120 600; sleep 3; adb exec-out screencap -p > diag/05-painel.png || true
+            adb shell input swipe 160 560 160 120 600; sleep 3; adb exec-out screencap -p > diag/06-painel.png || true
             adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://card/sv03-125" com.seunome.fichariotcg || true
-            sleep 25
-            adb exec-out screencap -p > diag/4-carta.png || true
+            sleep 15
+            adb exec-out screencap -p > diag/07-carta.png || true
+            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://search?q=charizard" com.seunome.fichariotcg || true
+            sleep 20
+            adb exec-out screencap -p > diag/08-busca.png || true
+            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://pokemon/6?name=Charizard" com.seunome.fichariotcg || true
+            sleep 20
+            adb exec-out screencap -p > diag/09-pokedex.png || true
             adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://scan" com.seunome.fichariotcg || true
             sleep 15
-            adb exec-out screencap -p > diag/5-scan.png || true
-            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://settings" com.seunome.fichariotcg || true
-            sleep 8
-            adb exec-out screencap -p > diag/6-ajustes.png || true
+            adb exec-out screencap -p > diag/10-scan.png || true
             (adb shell pidof com.seunome.fichariotcg && echo "APP RODANDO") > diag/status.txt || echo "APP FECHOU" > diag/status.txt
             adb logcat -d > diag/logcat-completo.txt
       - name: Publicar diagnóstico

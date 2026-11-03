@@ -42,7 +42,7 @@ export default function SetsScreen() {
         keyboardShouldPersistTaps="handled"
         ListHeaderComponent={
           <View style={{ gap: 12, marginBottom: 4 }}>
-            <Txt variant="title">Coleções</Txt>
+            <Txt variant="title">Explorar</Txt>
             <TextInput
               value={q} onChangeText={setQ} placeholder="Buscar coleção (ex.: Obsidiana, 151)"
               placeholderTextColor={t.muted}

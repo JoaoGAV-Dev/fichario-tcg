@@ -3,7 +3,7 @@ import {
   ActivityIndicator, Pressable, StyleSheet, Text, View,
   type StyleProp, type TextProps, type TextStyle, type ViewStyle,
 } from 'react-native';
-import Svg, { Circle, Line, Polyline, Text as SvgText } from 'react-native-svg';
+import Svg, { Circle, Line, Polygon, Polyline, Text as SvgText } from 'react-native-svg';
 
 import { useTheme } from '@/hooks/use-theme';
 import { brl, pctLabel } from '@/lib/format';
@@ -77,37 +77,60 @@ export function Empty({ title, children }: { title: string; children?: ReactNode
   );
 }
 
-/** Gráfico de linha simples (sem biblioteca extra) com mínimo e máximo marcados. */
-export function PriceChart({ points, height = 140 }: { points: { date: string; value: number }[]; height?: number }) {
+/** Gráfico de linha com área, eixo de valores (3 marcas) e datas — sem biblioteca extra. */
+export function PriceChart({
+  points, height = 170, color,
+}: { points: { date: string; value: number }[]; height?: number; color?: string }) {
   const t = useTheme();
-  const width = 320;
+  const width = 340;
   if (points.length < 2) {
     return (
-      <View style={[styles.center, { height }]}>
+      <View style={[styles.center, { height: 110 }]}>
         <Txt variant="small" style={{ textAlign: 'center' }}>
-          O gráfico aparece a partir de 2 dias de coleta.
+          {points.length === 1
+            ? `Hoje: ${brl(points[0].value)}. A linha aparece a partir do 2º dia de coleta.`
+            : 'Sem preços ainda para montar o gráfico.'}
         </Txt>
       </View>
     );
   }
   const vals = points.map((p) => p.value);
-  const min = Math.min(...vals);
-  const max = Math.max(...vals);
-  const pad = 14;
-  const x = (i: number) => pad + (i / (points.length - 1)) * (width - pad * 2);
-  const y = (v: number) => (max === min ? height / 2 : pad + (1 - (v - min) / (max - min)) * (height - pad * 2 - 10));
+  let min = Math.min(...vals);
+  let max = Math.max(...vals);
+  if (max === min) {
+    max = max * 1.05 + 1;
+    min = Math.max(0, min * 0.95 - 1);
+  }
+  const left = 52;
+  const right = 10;
+  const top = 10;
+  const bottom = 24;
+  const x = (i: number) => left + (i / (points.length - 1)) * (width - left - right);
+  const y = (v: number) => top + (1 - (v - min) / (max - min)) * (height - top - bottom);
   const line = points.map((p, i) => `${x(i)},${y(p.value)}`).join(' ');
-  const last = points[points.length - 1];
-  const up = last.value >= points[0].value;
+  const area = `${x(0)},${height - bottom} ${line} ${x(points.length - 1)},${height - bottom}`;
+  const stroke = color ?? (points[points.length - 1].value >= points[0].value ? t.up : t.down);
+  const ticks = [max, (max + min) / 2, min];
+  const dLabel = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
+  const mid = Math.floor((points.length - 1) / 2);
   return (
     <Svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`}>
-      <Line x1={pad} x2={width - pad} y1={y(min)} y2={y(min)} stroke={t.border} strokeDasharray="3 4" />
-      <Line x1={pad} x2={width - pad} y1={y(max)} y2={y(max)} stroke={t.border} strokeDasharray="3 4" />
-      <Polyline points={line} fill="none" stroke={up ? t.up : t.down} strokeWidth={2.2} strokeLinejoin="round" />
-      <Circle cx={x(points.length - 1)} cy={y(last.value)} r={3.5} fill={up ? t.up : t.down} />
-      <SvgText x={width - pad} y={height - 2} fontSize={10} fill={t.textSecondary} textAnchor="end">
-        {`mín ${brl(min)} · máx ${brl(max)}`}
-      </SvgText>
+      {ticks.map((v, i) => (
+        <Line key={i} x1={left} x2={width - right} y1={y(v)} y2={y(v)} stroke={t.border} strokeDasharray="3 4" />
+      ))}
+      {ticks.map((v, i) => (
+        <SvgText key={`l${i}`} x={left - 6} y={y(v) + 4} fontSize={10} fill={t.textSecondary} textAnchor="end">
+          {brl(v).replace(',00', '')}
+        </SvgText>
+      ))}
+      <Polygon points={area} fill={stroke} fillOpacity={0.12} />
+      <Polyline points={line} fill="none" stroke={stroke} strokeWidth={2.2} strokeLinejoin="round" />
+      <Circle cx={x(points.length - 1)} cy={y(points[points.length - 1].value)} r={3.5} fill={stroke} />
+      {[0, mid, points.length - 1].map((i, k) => (
+        <SvgText key={`d${k}`} x={x(i)} y={height - 6} fontSize={10} fill={t.textSecondary} textAnchor={k === 0 ? 'start' : k === 2 ? 'end' : 'middle'}>
+          {dLabel(points[i].date)}
+        </SvgText>
+      ))}
     </Svg>
   );
 }

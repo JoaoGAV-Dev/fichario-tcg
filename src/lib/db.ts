@@ -49,6 +49,14 @@ const MIGRATIONS: string[] = [
   );
   CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
   `,
+  // v2: dados extras da carta para o painel (total da coleção com secretas, nº da Pokédex, variantes)
+  `
+  ALTER TABLE cards ADD COLUMN set_total INTEGER;
+  ALTER TABLE cards ADD COLUMN dex_id INTEGER;
+  ALTER TABLE cards ADD COLUMN variants TEXT;
+  ALTER TABLE cards ADD COLUMN set_logo TEXT;
+  CREATE INDEX IF NOT EXISTS items_created ON items(created_at);
+  `,
 ];
 
 async function open(): Promise<SQLiteDatabase> {

@@ -97,6 +97,12 @@ export function LigaProvider({ children }: { children: ReactNode }) {
   const start = useCallback(async (cards?: Job[], opts?: { visible?: boolean }) => {
     if (running) {
       if (opts?.visible) setVisible(true);
+      // Já está rodando: só coloca as cartas novas no fim da fila
+      const extra = (cards ?? []).filter((c) => !queueRef.current.some((q) => q.id === c.id));
+      if (extra.length) {
+        queueRef.current = [...queueRef.current, ...extra];
+        setQueue(queueRef.current);
+      }
       return;
     }
     const list = cards ?? (await cardsMissingToday('liga'));

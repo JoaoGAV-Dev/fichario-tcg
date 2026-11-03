@@ -1,37 +1,47 @@
+// Painel da coleção (inspirado no "Minha Coleção" do Deck Certo), tudo calculado no celular.
 import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, RefreshControl, SectionList, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Button, ChangePill, Chip, Empty, Loading, Panel, Txt } from '@/components/ui';
+import { Button, ChangePill, Chip, Empty, Loading, Panel, PriceChart, Txt } from '@/components/ui';
 import { useTheme } from '@/hooks/use-theme';
-import { listCollection, ownedCards, type Item } from '@/lib/collection';
+import { backfillCards, listCollection, ownedCards, type Item } from '@/lib/collection';
 import { onDataChanged } from '@/lib/db';
-import { brl, dateBR } from '@/lib/format';
+import { brl, dateBR, pctLabel } from '@/lib/format';
 import { LigaStatus, useLiga } from '@/lib/liga';
-import {
-  PERIODS, changesFor, getCollectionSnapshots, getHistorySince, portfolioChanges, refPrice,
-  refreshCards, todayBR, type Snapshot,
-} from '@/lib/prices';
-import { REF_LABEL, useSettings } from '@/lib/settings';
+import { buildDashboard, holdingsOf, movers, pokedexGroups, valueSeries } from '@/lib/portfolio';
+import { getCollectionSnapshots, getHistorySince, refreshCards, todayBR, type Snapshot } from '@/lib/prices';
+import { useSettings } from '@/lib/settings';
 
-type Row = { item: Item; unit: number | null; change1m: number | null };
+type Segment = 'colecoes' | 'pokedex';
+const RANGES = [
+  { key: 7, label: '7 dias' },
+  { key: 30, label: '30 dias' },
+  { key: 90, label: '90 dias' },
+  { key: 'all', label: 'Tudo' },
+] as const;
 
-export default function CollectionScreen() {
+export default function Home() {
   const t = useTheme();
+  const { width } = useWindowDimensions();
   const { refMode } = useSettings();
   const liga = useLiga();
   const [items, setItems] = useState<Item[] | null>(null);
   const [byCard, setByCard] = useState<Map<string, Snapshot[]>>(new Map());
   const [since, setSince] = useState<string | null>(null);
-  const [period, setPeriod] = useState<string>('1m');
+  const [segment, setSegment] = useState<Segment>('colecoes');
+  const [range, setRange] = useState<7 | 30 | 90 | 'all'>(30);
+  const [setFilter, setSetFilter] = useState<string | null>(null);
+  const [moverTab, setMoverTab] = useState<'down' | 'up'>('down');
+  const [q, setQ] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [its, snaps, h] = await Promise.all([listCollection(), getCollectionSnapshots(), getHistorySince()]);
+      const [its, snaps, h] = await Promise.all([listCollection(), getCollectionSnapshots(1200), getHistorySince()]);
       setItems(its);
       setByCard(snaps);
       setSince(h);
@@ -43,140 +53,280 @@ export default function CollectionScreen() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
   useEffect(() => onDataChanged(() => { load(); }), [load]);
+  useEffect(() => { backfillCards().then(load).catch(() => {}); }, [load]);
 
   const today = todayBR();
-  const rows: Row[] = useMemo(
-    () => (items ?? []).map((item) => {
-      const s = byCard.get(item.card_id) ?? [];
-      return { item, unit: refPrice(s, today, refMode), change1m: changesFor(s, { ref: refMode }, today)[0].pct };
-    }),
-    [items, byCard, refMode, today],
-  );
-
-  const total = rows.reduce((acc, r) => acc + (r.unit ?? 0) * r.item.quantity, 0);
-  const priced = rows.filter((r) => r.unit !== null).length;
-  const copies = rows.reduce((acc, r) => acc + r.item.quantity, 0);
-  const portfolio = useMemo(() => portfolioChanges(items ?? [], byCard, refMode, today), [items, byCard, refMode, today]);
-  const sel = portfolio.find((p) => p.key === period);
-
-  const sections = useMemo(() => {
-    const groups = new Map<string, { title: string; data: Row[]; value: number }>();
-    for (const r of rows) {
-      const k = r.item.card.set_id;
-      const g = groups.get(k) ?? groups.set(k, { title: r.item.card.set_name, data: [], value: 0 }).get(k)!;
-      g.data.push(r);
-      g.value += (r.unit ?? 0) * r.item.quantity;
-    }
-    return [...groups.values()]
-      .map((g) => ({ ...g, data: g.data.sort((a, b) => (b.unit ?? 0) - (a.unit ?? 0)) }))
-      .sort((a, b) => b.value - a.value);
-  }, [rows]);
+  const dash = useMemo(() => buildDashboard(items ?? [], byCard, refMode, today), [items, byCard, refMode, today]);
+  const holdings = useMemo(() => holdingsOf(items ?? [], byCard, refMode, today), [items, byCard, refMode, today]);
+  const series = useMemo(() => valueSeries(holdings, byCard, refMode, range, setFilter, today), [holdings, byCard, refMode, range, setFilter, today]);
+  const moves = useMemo(() => movers(holdings, byCard, refMode, 30, today), [holdings, byCard, refMode, today]);
+  const dex = useMemo(() => pokedexGroups(holdings), [holdings]);
 
   async function refreshPrices() {
     const cards = await ownedCards();
     if (!cards.length) return;
-    const res = await refreshCards(cards, (d, n) => setProgress(`Atualizando MYP… ${d}/${n}`));
+    const res = await refreshCards(cards, (d, n) => setProgress(`MYP ${d}/${n}`));
     setProgress(null);
-    if (res.failed.length) {
-      Alert.alert(
-        'Atualização concluída',
-        `${res.ok} cartas atualizadas. ${res.failed.length} sem preço na MYP (ex.: ${res.failed.slice(0, 3).map((f) => f.id).join(', ')}).`,
-      );
-    }
+    if (res.failed.length) Alert.alert('MYP', `${res.ok} cartas atualizadas, ${res.failed.length} sem preço na MYP.`);
   }
 
   if (!items) return <Loading label="Carregando sua coleção…" />;
 
-  const header = (
-    <View style={{ gap: 14, paddingBottom: 8 }}>
-      <Txt variant="title">Minha coleção</Txt>
-      <Panel style={{ gap: 10 }}>
-        <Txt variant="label">Valor estimado · {REF_LABEL[refMode]}</Txt>
-        <Txt variant="money">{brl(total)}</Txt>
-        <Txt variant="small">
-          {copies} cartas · {rows.length} itens · {priced} com preço
-          {since ? ` · histórico desde ${dateBR(since)}` : ''}
-        </Txt>
-        <View style={styles.chips}>
-          {PERIODS.map((p) => (
-            <Chip key={p.key} label={p.label} active={period === p.key} onPress={() => setPeriod(p.key)} />
-          ))}
-        </View>
-        <View style={styles.rowBetween}>
-          <Txt variant="small" style={{ flex: 1 }}>
-            {sel && sel.compared
-              ? `${brl(sel.valueThen)} → ${brl(sel.valueNow)} (${sel.compared} de ${sel.total} cartas comparáveis)`
-              : 'Ainda não há coleta tão antiga para comparar.'}
-          </Txt>
-          <ChangePill pct={sel?.pct ?? null} style={{ fontSize: 16 }} />
-        </View>
-      </Panel>
-      <View style={styles.actions}>
-        <Button title={progress ?? 'Atualizar MYP agora'} kind="secondary" onPress={refreshPrices} loading={!!progress} style={{ flex: 1 }} />
-        <Button
-          title={liga.running ? 'Ver Liga' : 'Atualizar Liga'} kind="secondary" style={{ flex: 1 }}
-          onPress={async () => (liga.running ? liga.show() : liga.start(await ownedCards(), { visible: true }))}
-        />
-      </View>
-      <LigaStatus />
-    </View>
-  );
+  const col = (width - 16 * 2 - 10) / 2;
+  const seriesDelta = series.length >= 2 ? series[series.length - 1].value - series[0].value : null;
+  const seriesPct = series.length >= 2 && series[0].value ? ((series[series.length - 1].value - series[0].value) / series[0].value) * 100 : null;
+  const moveList = moverTab === 'down' ? moves.down : moves.up;
 
   return (
     <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: t.background }}>
-      <SectionList
-        contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
-        sections={sections}
-        keyExtractor={(r) => String(r.item.id)}
-        ListHeaderComponent={header}
-        stickySectionHeadersEnabled={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
-        ListEmptyComponent={
+      <ScrollView
+        contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 120 }}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}>
+        <Txt variant="title">Minha Coleção</Txt>
+
+        <View style={styles.segRow}>
+          <Pressable onPress={() => setSegment('colecoes')}>
+            <Txt style={[styles.seg, segment === 'colecoes' && { color: t.text, borderBottomColor: t.accent }]}>Coleções</Txt>
+          </Pressable>
+          <Pressable onPress={() => setSegment('pokedex')}>
+            <Txt style={[styles.seg, { color: t.textSecondary }, segment === 'pokedex' && { color: t.text, borderBottomColor: t.accent }]}>Pokédex</Txt>
+          </Pressable>
+          <TextInput
+            value={q}
+            onChangeText={setQ}
+            placeholder="Buscar carta…"
+            placeholderTextColor={t.muted}
+            returnKeyType="search"
+            onSubmitEditing={() => q.trim().length >= 2 && router.push({ pathname: '/search', params: { q: q.trim() } })}
+            style={[styles.search, { backgroundColor: t.card, borderColor: t.border, color: t.text }]}
+          />
+        </View>
+
+        {items.length === 0 ? (
           <Empty title="Nenhuma carta ainda">
             <Txt variant="small" style={{ textAlign: 'center', marginTop: 8 }}>
-              Escaneie uma carta ou adicione pela aba Coleções.
+              Escaneie suas cartas ou marque pela aba Explorar.
             </Txt>
-            <Button title="Escanear carta" onPress={() => router.push('/scan')} style={{ marginTop: 16 }} />
+            <Button title="Escanear cartas" onPress={() => router.push('/scan')} style={{ marginTop: 16 }} />
           </Empty>
-        }
-        renderSectionHeader={({ section }) => (
-          <View style={[styles.rowBetween, { marginTop: 18, marginBottom: 8 }]}>
-            <Txt variant="h2" numberOfLines={1} style={{ flex: 1 }}>{section.title}</Txt>
-            <Txt variant="small">{brl(section.value)}</Txt>
+        ) : segment === 'pokedex' ? (
+          <View style={styles.grid}>
+            {dex.map((g) => (
+              <Pressable key={g.dexId} onPress={() => router.push({ pathname: '/pokemon/[dex]', params: { dex: String(g.dexId), name: g.name } })}>
+                <View style={[styles.dexCard, { width: col, backgroundColor: t.card, borderColor: t.border }]}>
+                  {g.image ? <Image source={{ uri: `${g.image}/low.webp` }} style={styles.dexImg} contentFit="cover" contentPosition="top" /> : null}
+                  <Txt variant="small">#{String(g.dexId).padStart(4, '0')}</Txt>
+                  <Txt style={{ fontWeight: '700' }} numberOfLines={1}>{g.name}</Txt>
+                  <Txt variant="small">{g.cards} {g.cards === 1 ? 'carta' : 'cartas'} · {brl(g.value)}</Txt>
+                </View>
+              </Pressable>
+            ))}
+            {!dex.length ? <Txt variant="small">Nenhum Pokémon identificado ainda.</Txt> : null}
           </View>
-        )}
-        renderItem={({ item: r }) => (
-          <Pressable onPress={() => router.push({ pathname: '/card/[id]', params: { id: r.item.card_id } })}>
-            <View style={[styles.item, { backgroundColor: t.card, borderColor: t.border }]}>
-              {r.item.card.image ? (
-                <Image source={{ uri: `${r.item.card.image}/low.webp` }} style={styles.thumb} contentFit="contain" />
-              ) : <View style={[styles.thumb, { backgroundColor: t.backgroundElement }]} />}
-              <View style={{ flex: 1, gap: 2 }}>
-                <Txt numberOfLines={1} style={{ fontWeight: '700' }}>{r.item.card.name_pt}</Txt>
-                <Txt variant="small">
-                  {r.item.card.set_abbr ?? r.item.card.set_id} {r.item.card.local_id}
-                  {r.item.card.set_official_count ? `/${r.item.card.set_official_count}` : ''} · {r.item.condition} · {r.item.quantity}x
+        ) : (
+          <>
+            {/* ---------------------------------------------------- painel */}
+            <Panel style={{ gap: 10 }}>
+              <Txt variant="label" color={t.accent}>Minha coleção · painel</Txt>
+              <Txt style={styles.hero}>
+                Sua coleção vale <Txt style={[styles.hero, { color: t.up }]}>{brl(dash.value).replace(',00', '')}</Txt>
+              </Txt>
+              {dash.change30.pct !== null ? (
+                <Txt>
+                  <Txt style={{ color: dash.change30.delta < 0 ? t.down : t.up, fontWeight: '700' }}>
+                    {dash.change30.delta < 0 ? '−' : '+'}{brl(Math.abs(dash.change30.delta))} ({pctLabel(dash.change30.pct)})
+                  </Txt>{' '}
+                  em 30 dias, pela variação de preço das suas cartas.
                 </Txt>
+              ) : (
+                <Txt variant="small">
+                  A variação de 30 dias aparece quando houver histórico{since ? ` (coletando desde ${dateBR(since)})` : ''}.
+                </Txt>
+              )}
+              <Txt>
+                Entraram <Txt style={{ fontWeight: '700' }}>{dash.entries30.distinct} cartas</Txt> ({dash.entries30.copies} cópias)
+                nos últimos 30 dias, somando <Txt style={{ fontWeight: '700' }}>{brl(dash.entries30.value)}</Txt>.
+              </Txt>
+              <View style={styles.tiles}>
+                <Tile n={String(dash.copies)} label="cartas na coleção" w={(width - 16 * 2 - 32 - 10) / 2} />
+                <Tile n={String(dash.activeSets)} label="coleções ativas" w={(width - 16 * 2 - 32 - 10) / 2} />
+                <Tile n={String(dash.priced)} label="cartas com preço" w={(width - 16 * 2 - 32 - 10) / 2} />
+                <Tile
+                  n={dash.change30.pct === null ? '—' : pctLabel(dash.change30.pct)}
+                  color={dash.change30.pct === null ? undefined : dash.change30.pct < 0 ? t.down : t.up}
+                  label="preço em 30 dias" w={(width - 16 * 2 - 32 - 10) / 2}
+                />
               </View>
-              <View style={{ alignItems: 'flex-end', gap: 2 }}>
-                <Txt style={{ fontWeight: '700' }}>{brl(r.unit)}</Txt>
-                <ChangePill pct={r.change1m} />
-              </View>
+            </Panel>
+
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <Button title={progress ?? 'Atualizar MYP'} kind="secondary" loading={!!progress} onPress={refreshPrices} style={{ flex: 1 }} />
+              <Button
+                title={liga.running ? 'Ver Liga' : 'Atualizar Liga'} kind="secondary" style={{ flex: 1 }}
+                onPress={async () => (liga.running ? liga.show() : liga.start(await ownedCards(), { visible: true }))}
+              />
             </View>
-          </Pressable>
+            <LigaStatus />
+
+            {/* ---------------------------------------------------- coleções */}
+            <View style={styles.rowBetween}>
+              <Txt variant="h2">Coleções</Txt>
+              <Txt variant="small">{dash.activeSets} ativas</Txt>
+            </View>
+            <View style={styles.grid}>
+              {dash.sets.map((s) => {
+                const ratio = s.total ? Math.min(1, s.owned / s.total) : 0;
+                return (
+                  <Pressable key={s.setId} onPress={() => router.push({ pathname: '/set/[id]', params: { id: s.setId, name: s.name } })}>
+                    <View style={[styles.setCard, { width: col, backgroundColor: t.card, borderColor: t.border }]}>
+                      {s.cover ? (
+                        <Image source={{ uri: `${s.cover}/low.webp` }} style={styles.cover} contentFit="cover" contentPosition="top" />
+                      ) : <View style={[styles.cover, { backgroundColor: t.backgroundElement }]} />}
+                      <Txt style={{ fontWeight: '700' }} numberOfLines={2}>{s.name}</Txt>
+                      <View style={styles.rowBetween}>
+                        <View style={[styles.bar, { backgroundColor: t.backgroundElement }]}>
+                          <View style={[styles.barFill, { width: `${Math.max(ratio * 100, 2)}%`, backgroundColor: t.accent }]} />
+                        </View>
+                        <Txt variant="small">{s.owned} de {s.total ?? '?'}</Txt>
+                      </View>
+                      <Txt style={{ fontWeight: '800' }}>{s.value ? brl(s.value) : '—'}</Txt>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Button title="+ Abrir outra coleção" kind="secondary" onPress={() => router.push('/sets')} />
+
+            {/* ---------------------------------------------------- mais valiosas */}
+            {dash.top.length ? (
+              <Panel style={{ gap: 4 }}>
+                <Txt variant="h2">Mais valiosas da sua coleção</Txt>
+                <Txt variant="small">Preços do mercado brasileiro (Liga e MYP).</Txt>
+                {dash.top.slice(0, 10).map((h) => (
+                  <CardRow
+                    key={h.cardId}
+                    image={h.item.card.image}
+                    title={h.item.card.name_pt}
+                    subtitle={`${h.item.card.set_name} · ${h.item.card.local_id}${h.item.card.set_official_count ? '/' + h.item.card.set_official_count : ''}${h.qty > 1 ? ` · x${h.qty}` : ''}`}
+                    right={brl(h.price)}
+                    onPress={() => router.push({ pathname: '/card/[id]', params: { id: h.cardId } })}
+                  />
+                ))}
+              </Panel>
+            ) : null}
+
+            {/* ---------------------------------------------------- evolução */}
+            <Panel style={{ gap: 10 }}>
+              <Txt variant="h2">Evolução do valor</Txt>
+              <Txt variant="small">As cartas que você tem hoje, nos preços de cada dia.</Txt>
+              <View style={styles.wrap}>
+                {RANGES.map((r) => <Chip key={String(r.key)} label={r.label} active={range === r.key} onPress={() => setRange(r.key)} />)}
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                <Chip label="Todas" active={!setFilter} onPress={() => setSetFilter(null)} />
+                {dash.sets.map((s) => <Chip key={s.setId} label={s.name} active={setFilter === s.setId} onPress={() => setSetFilter(s.setId)} />)}
+              </ScrollView>
+              {series.length >= 2 ? (
+                <Txt variant="small">
+                  {dateBR(series[0].date).slice(0, 5)} a {dateBR(series[series.length - 1].date).slice(0, 5)} ·{' '}
+                  <Txt variant="small" style={{ color: (seriesDelta ?? 0) < 0 ? t.down : t.up, fontWeight: '700' }}>
+                    {(seriesDelta ?? 0) < 0 ? '−' : '+'}{brl(Math.abs(seriesDelta ?? 0))} ({pctLabel(seriesPct === null ? null : Math.round(seriesPct * 10) / 10)})
+                  </Txt>
+                </Txt>
+              ) : null}
+              <PriceChart points={series} />
+            </Panel>
+
+            {/* ---------------------------------------------------- movimentações */}
+            <Panel style={{ gap: 8 }}>
+              <Txt variant="h2">Movimentações</Txt>
+              <Txt variant="small">O que mais mexeu no valor da sua coleção nos últimos 30 dias.</Txt>
+              <View style={[styles.toggle, { backgroundColor: t.backgroundElement }]}>
+                {(['down', 'up'] as const).map((k) => (
+                  <Pressable key={k} onPress={() => setMoverTab(k)} style={[styles.toggleBtn, moverTab === k && { backgroundColor: t.accent }]}>
+                    <Txt style={{ fontWeight: '700', color: moverTab === k ? t.accentText : t.text }}>{k === 'down' ? 'Caíram' : 'Subiram'}</Txt>
+                  </Pressable>
+                ))}
+              </View>
+              {moveList.length ? moveList.slice(0, 10).map((m) => (
+                <CardRow
+                  key={m.holding.cardId}
+                  image={m.holding.item.card.image}
+                  title={m.holding.item.card.name_pt}
+                  badge={<ChangePill pct={m.pct} />}
+                  subtitle={`${m.holding.item.card.set_name} · ${m.holding.item.card.local_id}`}
+                  right={brl(m.now)}
+                  rightSub={`${m.delta < 0 ? '−' : '+'}${brl(Math.abs(m.delta))}`}
+                  rightSubColor={m.delta < 0 ? t.down : t.up}
+                  onPress={() => router.push({ pathname: '/card/[id]', params: { id: m.holding.cardId } })}
+                />
+              )) : (
+                <Txt variant="small">Sem movimentações ainda: precisa de pelo menos alguns dias de coleta.</Txt>
+              )}
+            </Panel>
+          </>
         )}
-      />
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
+function Tile({ n, label, w, color }: { n: string; label: string; w: number; color?: string }) {
+  const t = useTheme();
+  return (
+    <View style={[styles.tile, { width: w, borderColor: t.border, backgroundColor: t.backgroundElement }]}>
+      <Txt style={{ fontSize: 24, fontWeight: '800', color: color ?? t.text }}>{n}</Txt>
+      <Txt variant="small">{label}</Txt>
+    </View>
+  );
+}
+
+function CardRow({
+  image, title, subtitle, right, rightSub, rightSubColor, badge, onPress,
+}: {
+  image: string | null | undefined; title: string; subtitle: string; right: string;
+  rightSub?: string; rightSubColor?: string; badge?: React.ReactNode; onPress: () => void;
+}) {
+  const t = useTheme();
+  return (
+    <Pressable onPress={onPress}>
+      <View style={[styles.cardRow, { borderTopColor: t.border }]}>
+        {image ? <Image source={{ uri: `${image}/low.webp` }} style={styles.thumb} contentFit="contain" /> : <View style={[styles.thumb, { backgroundColor: t.backgroundElement }]} />}
+        <View style={{ flex: 1, gap: 2 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Txt numberOfLines={1} style={{ fontWeight: '700', flexShrink: 1 }}>{title}</Txt>
+            {badge}
+          </View>
+          <Txt variant="small" numberOfLines={2}>{subtitle}</Txt>
+        </View>
+        <View style={{ alignItems: 'flex-end' }}>
+          <Txt style={{ fontWeight: '800' }}>{right}</Txt>
+          {rightSub ? <Txt variant="small" style={{ color: rightSubColor, fontWeight: '700' }}>{rightSub}</Txt> : null}
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  actions: { flexDirection: 'row', gap: 10 },
-  item: {
-    flexDirection: 'row', alignItems: 'center', gap: 12, padding: 10, borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth, marginBottom: 8,
-  },
-  thumb: { width: 44, height: 61, borderRadius: 4 },
+  segRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  seg: { fontSize: 16, fontWeight: '700', paddingBottom: 6, borderBottomWidth: 2.5, borderBottomColor: 'transparent' },
+  search: { flex: 1, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, fontSize: 14 },
+  hero: { fontSize: 28, fontWeight: '800', letterSpacing: -0.5 },
+  tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
+  tile: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 14, padding: 12, gap: 2 },
+  rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  setCard: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, padding: 10, gap: 8 },
+  cover: { width: '100%', height: 96, borderRadius: 10 },
+  bar: { flex: 1, height: 5, borderRadius: 3, overflow: 'hidden' },
+  barFill: { height: 5, borderRadius: 3 },
+  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  toggle: { flexDirection: 'row', borderRadius: 12, padding: 4 },
+  toggleBtn: { flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 10 },
+  cardRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9, borderTopWidth: StyleSheet.hairlineWidth },
+  thumb: { width: 40, height: 56, borderRadius: 4 },
+  dexCard: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 14, padding: 10, gap: 2 },
+  dexImg: { width: '100%', height: 90, borderRadius: 8, marginBottom: 6 },
 });
