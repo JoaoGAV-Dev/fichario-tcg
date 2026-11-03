@@ -63,6 +63,9 @@ jobs:
             adb exec-out screencap -p > diag/10-scan.png || true
             sleep 15
             adb exec-out screencap -p > diag/11-scan.png || true
+            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://settings" com.seunome.fichariotcg || true
+            sleep 8
+            adb exec-out screencap -p > diag/12-ajustes.png || true
             (adb shell pidof com.seunome.fichariotcg && echo "APP RODANDO") > diag/status.txt || echo "APP FECHOU" > diag/status.txt
             adb logcat -d > diag/logcat-completo.txt
             grep -E "dev-vision|CardVision|AndroidRuntime|FATAL|ReactNativeJS" diag/logcat-completo.txt > diag/logcat-app.txt || true
