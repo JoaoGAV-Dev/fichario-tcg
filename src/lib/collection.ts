@@ -42,8 +42,13 @@ export async function ensureCard(cardId: string): Promise<DbCard> {
   const existing = await db.getFirstAsync<DbCard>('SELECT * FROM cards WHERE id = ?', [cardId]);
   if (existing && existing.set_total != null) return existing;
 
-  const pt = await getCard(cardId, 'pt');
-  const [set, en] = await Promise.all([getSet(pt.set.id, 'pt'), tryCard(cardId, 'en')]);
+  // Cartas que o TCGdex ainda não tem em PT (promos, energias, coleções novas) vêm do catálogo em inglês
+  const ptCard = await tryCard(cardId, 'pt');
+  const pt = ptCard ?? (await getCard(cardId, 'en'));
+  const [set, en] = await Promise.all([
+    ptCard ? getSet(pt.set.id, 'pt').catch(() => getSet(pt.set.id, 'en')) : getSet(pt.set.id, 'en'),
+    ptCard ? tryCard(cardId, 'en') : Promise.resolve(pt),
+  ]);
   const row: DbCard = {
     id: pt.id,
     set_id: set.id,
@@ -54,7 +59,7 @@ export async function ensureCard(cardId: string): Promise<DbCard> {
     name_pt: pt.name,
     name_en: en?.name ?? null,
     rarity: pt.rarity ?? null,
-    image: pt.image ?? null,
+    image: pt.image ?? en?.image ?? null,
     myp_path: existing?.myp_path ?? null,
     liga_url: existing?.liga_url ?? null,
     set_total: set.cardCount?.total ?? null,

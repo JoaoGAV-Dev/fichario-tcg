@@ -79,7 +79,7 @@ export function ensureVisionIndex(force = false): Promise<VisionStatus> {
           await setMeta('vision_checked', String(Date.now()));
           if (!local || remote.version !== local.version) target = remote;
         } else if (!local) {
-          set({ state: 'error', error: 'Sem internet para baixar o banco de cartas (só na 1ª vez).' });
+          set({ state: 'error', error: 'Não consegui baixar o banco de cartas. Confira a internet (só precisa na 1ª vez).' });
           return status;
         }
       }

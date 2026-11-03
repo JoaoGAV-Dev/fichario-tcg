@@ -23,6 +23,7 @@ import { VARIANT_LABEL, addToCollection, defaultVariant, ensureCard, getItem, se
 import { brl } from '@/lib/format';
 import { quickPrice } from '@/lib/quickprice';
 import { useSettings } from '@/lib/settings';
+import { setIdOf, tryCard } from '@/lib/tcgdex';
 import { ensureVisionIndex, onVisionStatus, visionStatus, type VisionStatus } from '@/lib/vision';
 
 if (Platform.OS === 'android') UIManager.setLayoutAnimationEnabledExperimental?.(true);
@@ -50,6 +51,17 @@ interface Alt {
   row: CatalogRow;
   score: number;
   label: string;
+}
+
+/** Dados das cartas pelo id: catálogo local (PT); as que não estão nele vêm da API (PT ou inglês). */
+async function rowsFor(ids: string[]): Promise<Map<string, CatalogRow>> {
+  const by = new Map((await catalogByIds(ids)).map((c) => [c.id, c] as const));
+  const missing = ids.filter((i) => !by.has(i)).slice(0, 4);
+  await Promise.all(missing.map(async (id) => {
+    const c = (await tryCard(id, 'pt')) ?? (await tryCard(id, 'en'));
+    if (c) by.set(id, { id, set_id: c.set?.id ?? setIdOf(id), local_id: c.localId, name: c.name, image: c.image ?? null });
+  }));
+  return by;
 }
 
 function labelOf(r: CatalogRow, sets: Map<string, SetMeta> | null) {
@@ -172,12 +184,10 @@ export default function VisionScan({ onUseOcr }: { onUseOcr: () => void }) {
   }, [flash, loadPrice, pop]);
 
   const handleMatch = useCallback(async (ev: CardEvent) => {
-    const ids = ev.matches.map((m) => m.id);
-    const cat = await catalogByIds(ids);
-    const byId = new Map(cat.map((c) => [c.id, c]));
+    const byId = await rowsFor([ev.id, ...ev.matches.map((m) => m.id).filter((i) => i !== ev.id)]);
     const top = byId.get(ev.id);
     if (!top) {
-      flash('Carta reconhecida, mas o catálogo ainda está carregando. Tente de novo.');
+      flash('Reconheci a carta, mas preciso de internet para buscar os dados dela.');
       return;
     }
     // Outras versões possíveis: mesma arte em outra coleção, ou quase empatadas
@@ -316,7 +326,7 @@ export default function VisionScan({ onUseOcr }: { onUseOcr: () => void }) {
           <View style={[styles.sheet, { backgroundColor: t.card, borderColor: t.border, gap: 8 }]}>
             <Txt style={{ fontWeight: '700' }}>Reconhecimento por imagem indisponível</Txt>
             <Txt variant="small">{vs.error}</Txt>
-            <View style={styles.rowGap}>
+            <View style={[styles.rowGap, { flexWrap: 'wrap' }]}>
               <Button title="Tentar de novo" icon="refresh" onPress={() => ensureVisionIndex(true)} />
               <Button title="Ler pelo texto" kind="secondary" onPress={onUseOcr} />
             </View>

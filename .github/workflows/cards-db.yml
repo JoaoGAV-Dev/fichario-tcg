@@ -42,7 +42,7 @@ jobs:
         env:
           TF_CPP_MIN_LOG_LEVEL: '2'
         run: |
-          if [ "${{ github.event_name }}" = "push" ] || [ "${{ inputs.eval }}" = "true" ]; then
+          if [ "${{ inputs.eval }}" = "true" ]; then
             python vision/build_db.py --eval 2>&1 | tee log.txt
           else
             python vision/build_db.py 2>&1 | tee log.txt

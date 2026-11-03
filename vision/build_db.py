@@ -49,11 +49,14 @@ def norm_name(s):
 # ---------------------------------------------------------------- cartas e imagens
 
 def fetch_cards():
+    """Cartas em PT (imagem PT; se não houver, a em inglês) + cartas que só existem no catálogo em inglês
+    (promos, energias, coleções ainda sem tradução no TCGdex) — a arte é a mesma da carta brasileira."""
     ses = requests.Session()
     pt = ses.get('https://api.tcgdex.net/v2/pt/cards', timeout=180).json()
     en = ses.get('https://api.tcgdex.net/v2/en/cards', timeout=180).json()
     en_img = {c['id']: c.get('image') for c in en if c.get('image')}
     cards = []
+    seen = set()
     for c in pt:
         img = c.get('image')
         src = 'pt'
@@ -62,8 +65,16 @@ def fetch_cards():
             src = 'en'
         if not img or '/tcgp/' in img:
             continue
+        seen.add(c['id'])
         cards.append({'id': c['id'], 'name': c.get('name', ''), 'img': img + '/low.webp', 'src': src})
-    log(f'{len(pt)} cartas PT na lista; {len(cards)} com imagem ({sum(c["src"] == "en" for c in cards)} usando a imagem em inglês)')
+    for c in en:
+        img = c.get('image')
+        if c['id'] in seen or not img or '/tcgp/' in img:
+            continue
+        seen.add(c['id'])
+        cards.append({'id': c['id'], 'name': c.get('name', ''), 'img': img + '/low.webp', 'src': 'en-only'})
+    log(f'{len(pt)} cartas PT e {len(en)} EN na lista; {len(cards)} no banco '
+        f'({sum(c["src"] == "en" for c in cards)} PT com imagem EN, {sum(c["src"] == "en-only" for c in cards)} só em inglês)')
     return cards
 
 
@@ -299,8 +310,8 @@ def project(X, mean, P):
 
 LABELS = {
     'meowth-alola': lambda n: 'meowth' in n and 'alola' in n,
-    'energia-escuridao': lambda n: ('escurid' in n or '{d}' in n or 'darkness' in n) and 'energia' in n,
-    'busca-de-energia': lambda n: 'busca de energia' in n,
+    'energia-escuridao': lambda n: ('energia' in n and ('escurid' in n or '{d}' in n)) or 'darkness energy' in n,
+    'busca-de-energia': lambda n: 'busca de energia' in n or n == 'energy search',
 }
 
 
@@ -360,8 +371,9 @@ def export_tflite(feat_model, mean, P, path, quant=True):
     d.set_weights([P, (-mean @ P).astype(np.float32)])
     model = keras.Model(inp, y)
     conv = tf.lite.TFLiteConverter.from_keras_model(model)
-    if quant:
+    if quant:  # pesos em float16: metade do tamanho, resultado praticamente igual
         conv.optimizations = [tf.lite.Optimize.DEFAULT]
+        conv.target_spec.supported_types = [tf.float16]
     data = conv.convert()
     with open(path, 'wb') as f:
         f.write(data)
@@ -523,7 +535,7 @@ def main():
     for quant in (True, False):
         export_tflite(fm, mean, P, tfl, quant)
         cos = (tflite_embed(tfl, chk) * db[sel]).sum(1)
-        log(f'tflite (8 bits={quant}) x keras: cosseno mín {cos.min():.4f}; {os.path.getsize(tfl) / 1e6:.1f} MB')
+        log(f'tflite (float16={quant}) x keras: cosseno mín {cos.min():.4f}; {os.path.getsize(tfl) / 1e6:.1f} MB')
         if cos.min() > 0.985:
             break
     db.astype('<f2').tofile(os.path.join(OUT, 'emb.f16'))
