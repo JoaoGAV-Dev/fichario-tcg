@@ -28,7 +28,7 @@ import requests
 from PIL import Image
 
 sys.path.insert(0, os.path.dirname(__file__))
-from cardvision import ART, ART_H, ART_W, H, W, find_quads, warp  # noqa: E402
+from cardvision import ART, ART_H, ART_W, H, W, find_quads, guide_quads, warp  # noqa: E402
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(ROOT, '..', 'out')
@@ -500,9 +500,10 @@ def real_queries():
     for f in sorted(glob.glob(os.path.join(ROOT, 'real', '*.jpg'))):
         label = os.path.basename(f).split('__')[0]
         img = cv2.cvtColor(cv2.imread(f), cv2.COLOR_BGR2RGB)
-        qs, g = find_quads(img)
-        cands = [warp(img, q) for q in qs[:4]] + [warp(img, g)]
-        kinds = ['borda'] * len(qs[:4]) + ['centro']
+        qs, _ = find_quads(img)
+        gs = guide_quads(img.shape[1], img.shape[0])
+        cands = [warp(img, q) for q in qs[:4]] + [warp(img, g) for g in gs]
+        kinds = ['borda'] * len(qs[:4]) + ['centro'] * len(gs)
         out.append({'file': os.path.basename(f), 'label': label, 'img': img, 'cands': cands, 'kinds': kinds})
     return out
 

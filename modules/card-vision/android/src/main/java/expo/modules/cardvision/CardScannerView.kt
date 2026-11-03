@@ -281,7 +281,7 @@ class CardScannerView(context: Context, appContext: AppContext) : ExpoView(conte
       val interval = if (lastEmitted != null) 300L else 0L
       if (!paused && CardIndex.ready && now - lastRecognize >= interval) {
         // fichário/sleeve: a borda achada muitas vezes é o bolso ou a arte; testa várias + o recorte central
-        result = CardRecognizer.recognize(frame, quads, true, 4, minScore)
+        result = CardRecognizer.recognize(frame, quads, true, 4, minScore, strongScore)
         lastRecognize = now
       }
       frame.release()

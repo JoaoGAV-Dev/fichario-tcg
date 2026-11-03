@@ -151,9 +151,27 @@ object CardDetector {
     return found.take(maxN).map { (_, q) -> Array(4) { Point(q[it].x / s, q[it].y / s) } }
   }
 
+  /** Recortes centrais em 3 tamanhos (carta mais perto/longe), para quando a borda não aparece. */
+  fun guideQuads(imgW: Int, imgH: Int): List<Array<Point>> =
+    listOf(0.5, 0.62, 0.78).map { guideQuad(imgW, imgH, it) }
+
+  /** Pequenas variações do recorte (menor/maior/deslocado) para achar o encaixe que mais bate. */
+  fun perturb(q: Array<Point>): List<Array<Point>> {
+    val cx = q.sumOf { it.x } / 4
+    val cy = q.sumOf { it.y } / 4
+    val w = dist(q[1], q[0])
+    val h = dist(q[3], q[0])
+    val out = ArrayList<Array<Point>>()
+    for (f in doubleArrayOf(0.92, 1.08)) out.add(Array(4) { Point(cx + (q[it].x - cx) * f, cy + (q[it].y - cy) * f) })
+    for ((dx, dy) in listOf(Pair(0.05, 0.0), Pair(-0.05, 0.0), Pair(0.0, 0.04), Pair(0.0, -0.04))) {
+      out.add(Array(4) { Point(q[it].x + dx * w, q[it].y + dy * h) })
+    }
+    return out
+  }
+
   /** Recorte central do tamanho de uma carta, para quando a borda não aparece. */
-  fun guideQuad(imgW: Int, imgH: Int): Array<Point> {
-    var w = 0.78 * imgW
+  fun guideQuad(imgW: Int, imgH: Int, scale: Double = 0.78): Array<Point> {
+    var w = scale * imgW
     var h = w * 88.0 / 63.0
     if (h > 0.9 * imgH) {
       h = 0.9 * imgH

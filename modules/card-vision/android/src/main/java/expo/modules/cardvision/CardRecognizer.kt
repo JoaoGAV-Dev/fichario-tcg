@@ -19,15 +19,24 @@ object CardRecognizer {
     quads: List<Array<Point>>,
     useGuide: Boolean,
     maxCand: Int,
-    flipBelow: Float
+    flipBelow: Float,
+    refineBelow: Float = 2f
   ): FrameMatch? {
     val list = ArrayList<Pair<Array<Point>, Boolean>>()
     quads.take(maxCand).forEach { list.add(Pair(it, false)) }
-    if (useGuide) list.add(Pair(CardDetector.guideQuad(src.cols(), src.rows()), true))
+    if (useGuide) CardDetector.guideQuads(src.cols(), src.rows()).forEach { list.add(Pair(it, true)) }
     var best: FrameMatch? = null
     for ((q, g) in list) {
       val m = embedSearch(src, q, false)
       if (m.isNotEmpty() && (best == null || m[0].score > best.top.score)) best = FrameMatch(q, g, m)
+    }
+    // ajuste fino em volta do melhor recorte (fichário, sleeve, carta fora do centro)
+    val b0 = best
+    if (b0 != null && b0.top.score < refineBelow) {
+      for (q in CardDetector.perturb(b0.quad)) {
+        val m = embedSearch(src, q, false)
+        if (m.isNotEmpty() && m[0].score > best!!.top.score) best = FrameMatch(q, b0.guide, m)
+      }
     }
     // carta de cabeça para baixo
     val b = best

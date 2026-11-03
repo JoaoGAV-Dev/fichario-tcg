@@ -44,7 +44,7 @@ class CardVisionModule : Module() {
       bmp.recycle()
       val t0 = System.currentTimeMillis()
       val quads = CardDetector.candidates(mat, 3)
-      val r = CardRecognizer.recognize(mat, quads, true, 3, 0.8f)
+      val r = CardRecognizer.recognize(mat, quads, true, 4, 0.8f)
       val w = mat.cols()
       val h = mat.rows()
       mat.release()

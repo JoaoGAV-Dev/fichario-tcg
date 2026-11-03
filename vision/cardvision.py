@@ -85,9 +85,14 @@ def candidates(gray, max_n=3):
     return [q for _, q in found[:max_n]]
 
 
-def guide_quad(img_w, img_h):
+def guide_quads(img_w, img_h):
+    """Recortes centrais em 3 tamanhos (igual ao app)."""
+    return [guide_quad(img_w, img_h, s) for s in (0.5, 0.62, 0.78)]
+
+
+def guide_quad(img_w, img_h, scale=0.78):
     """Recorte central do tamanho de uma carta (quando a borda não aparece)."""
-    w = 0.78 * img_w
+    w = scale * img_w
     h = w * 88 / 63
     if h > 0.9 * img_h:
         h = 0.9 * img_h
