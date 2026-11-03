@@ -43,7 +43,7 @@ export default function CardScreen() {
   }, [id]);
 
   useEffect(() => {
-    getCard(id).then((c) => {
+    getCard(id).catch(() => getCard(id, 'en')).then((c) => {
       setCard(c);
       const v = c.variants;
       setVariant(v?.normal ? 'normal' : v?.holo ? 'holo' : v?.reverse ? 'reverse' : 'normal');
