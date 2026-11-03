@@ -10,7 +10,8 @@ import { Colors } from '@/constants/theme';
 import { registerBackgroundRefresh } from '@/lib/background';
 import { getDb } from '@/lib/db';
 import { LigaProvider } from '@/lib/liga';
-import { refreshDueToday } from '@/lib/prices';
+import { runDailyCollection } from '@/lib/daily';
+import { getSeries } from '@/lib/tcgdex';
 import { SettingsProvider } from '@/lib/settings';
 
 SplashScreen.preventAutoHideAsync();
@@ -22,7 +23,8 @@ function useDailyCollection() {
       .catch(() => SplashScreen.hideAsync());
     registerBackgroundRefresh().catch(() => {});
     // Ao abrir (e ao voltar para o app), completa a coleta de MYP/TCGdex do dia, se faltar algo
-    const run = () => refreshDueToday().catch(() => {});
+    const run = () => runDailyCollection().catch(() => {});
+    getSeries().catch(() => {}); // deixa o catálogo pronto para o scanner
     const t = setTimeout(run, 2500);
     const sub = AppState.addEventListener('change', (s) => s === 'active' && run());
     return () => {

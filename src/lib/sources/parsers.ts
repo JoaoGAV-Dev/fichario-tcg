@@ -125,3 +125,80 @@ export function ligaCardUrl(nameEn: string, localId: string, officialCount?: num
   const n = formatCardNumber(localId);
   return `https://www.ligapokemon.com.br/?view=cards/card&card=${encodeURIComponent(card)}&num=${encodeURIComponent(n)}`;
 }
+
+export interface MypListing {
+  sku: string; // pokemon_obf_125/197
+  path: string;
+  min: number | null; // menor preço à venda (null = sem estoque)
+  qty: number;
+}
+
+/** Lê uma página de listagem da MYP (busca ou página da coleção): sku, link, menor preço e estoque. */
+export function parseMypListing(html: string): MypListing[] {
+  const out: MypListing[] = [];
+  const parts = html.split('data-ga-item-id="').slice(1);
+  for (const part of parts) {
+    const sku = part.slice(0, part.indexOf('"'));
+    if (!sku.startsWith('pokemon_') || out.some((o) => o.sku === sku)) continue;
+    const path = part.match(/href="(\/pokemon\/produto\/\d+\/[^"]*)"/)?.[1];
+    if (!path) continue;
+    const qty = Number(part.match(/class="quantidade-num">\s*(\d+)/)?.[1] ?? 0);
+    const price = part.match(/class="card-preco moeda">\s*([^<]+)</)?.[1];
+    out.push({ sku, path, qty, min: qty > 0 ? parseBRL(price) : null });
+  }
+  return out;
+}
+
+/** "Escarlate e Violeta: Obsidiana em Chamas" -> "escarlate-e-violeta-obsidiana-em-chamas" */
+export function slugify(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/&/g, 'e')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/** Caminho da coleção no breadcrumb da página do produto da MYP. */
+export function parseMypEditionPath(html: string): string | null {
+  const crumb = html.match(/<ul class="breadcrumb">([\s\S]*?)<\/ul>/)?.[1] ?? '';
+  const links = [...crumb.matchAll(/href="(\/pokemon\/[a-z0-9-]+)"/g)].map((m) => m[1]);
+  return links.find((l) => l !== '/pokemon') ?? null;
+}
+
+/** sku que a MYP usa para a carta: pokemon_<sigla>_<num>/<total> */
+export function mypSku(setAbbr: string, localId: string, officialCount?: number | null): string {
+  return `pokemon_${setAbbr.toLowerCase()}_${formatCardNumber(localId, officialCount)}`;
+}
+
+export interface TcgBucket {
+  date: string; // início da semana
+  market: number;
+}
+
+/**
+ * Histórico do TCGplayer (resposta de /price/history/<id>/detailed): escolhe a variante e a
+ * condição mais próximas (Near Mint de preferência) e devolve os preços semanais.
+ */
+export function parseTcgHistory(json: unknown, variantHint?: string): TcgBucket[] {
+  const result = (json as { result?: Array<Record<string, unknown>> })?.result ?? [];
+  if (!result.length) return [];
+  const want = (variantHint ?? '').toLowerCase();
+  const score = (r: Record<string, unknown>) => {
+    const v = String(r.variant ?? '').toLowerCase();
+    const c = String(r.condition ?? '').toLowerCase();
+    let s = 0;
+    if (want && v.replace(/\s/g, '') === want.replace(/\s/g, '')) s += 10;
+    if (c === 'near mint') s += 5;
+    else if (c === 'lightly played') s += 3;
+    s += Math.min(4, Number(r.totalQuantitySold ?? 0) / 100);
+    return s;
+  };
+  const best = [...result].sort((a, b) => score(b) - score(a))[0];
+  const buckets = (best.buckets as Array<Record<string, string>>) ?? [];
+  return buckets
+    .map((b) => ({ date: String(b.bucketStartDate), market: Number(b.marketPrice) }))
+    .filter((b) => /^\d{4}-\d{2}-\d{2}$/.test(b.date) && Number.isFinite(b.market) && b.market > 0)
+    .sort((a, b) => (a.date < b.date ? -1 : 1));
+}

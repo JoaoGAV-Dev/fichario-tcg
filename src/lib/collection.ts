@@ -21,6 +21,7 @@ export interface DbCard extends CardRow {
   dex_id?: number | null;
   variants?: string | null; // JSON das variantes da TCGdex
   set_logo?: string | null;
+  tcgplayer_id?: number | null;
 }
 
 export interface Item {

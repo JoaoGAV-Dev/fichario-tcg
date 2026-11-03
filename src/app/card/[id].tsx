@@ -13,10 +13,11 @@ import { onDataChanged } from '@/lib/db';
 import { brl, dateBR, money } from '@/lib/format';
 import { useLiga } from '@/lib/liga';
 import {
-  PERIODS, cardmarketMonthTrend, changesFor, chartSeries, getCardSnapshots, refreshCards,
+  PERIODS, cardmarketMonthTrend, changesFor, chartSeries, getCardSnapshots, intlSeries, refreshCards,
   type Snapshot, type Source,
 } from '@/lib/prices';
 import { REF_LABEL, useSettings } from '@/lib/settings';
+import { getFx, warmCard, type Fx } from '@/lib/sources/fast';
 import { getCard, type CardDetail } from '@/lib/tcgdex';
 
 export default function CardScreen() {
@@ -27,7 +28,9 @@ export default function CardScreen() {
   const [card, setCard] = useState<CardDetail | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [snaps, setSnaps] = useState<Snapshot[]>([]);
-  const [chartDays, setChartDays] = useState(90);
+  const [chartDays, setChartDays] = useState(365);
+  const [market, setMarket] = useState<'br' | 'intl'>('br');
+  const [fx, setFx] = useState<Fx | null>(null);
   const [variant, setVariant] = useState<Variant>('normal');
   const [condition, setCondition] = useState<Condition>('NM');
   const [qty, setQty] = useState(1);
@@ -46,6 +49,9 @@ export default function CardScreen() {
       setVariant(v?.normal ? 'normal' : v?.holo ? 'holo' : v?.reverse ? 'reverse' : 'normal');
     }).catch((e) => Alert.alert('Erro', String(e)));
     reload().catch(() => {});
+    getFx().then(setFx).catch(() => {});
+    // Baixa o histórico de 1 ano (TCGplayer) e os preços da coleção na MYP, sem travar a tela
+    ensureCard(id).then((row) => warmCard(row)).catch(() => {});
   }, [id, reload]);
   useEffect(() => onDataChanged(() => { reload().catch(() => {}); }), [reload]);
 
@@ -100,8 +106,13 @@ export default function CardScreen() {
   const refChanges = changesFor(snaps, { ref: refMode });
   const ligaChanges = changesFor(snaps, 'liga');
   const mypChanges = changesFor(snaps, 'myp');
+  const tcgChanges = changesFor(snaps, 'tcgplayer');
   const cmTrend = cardmarketMonthTrend(snaps);
-  const points = chartSeries(snaps, refMode, chartDays);
+  const brPoints = chartSeries(snaps, refMode, chartDays);
+  const points = market === 'br' ? brPoints : intlSeries(snaps, chartDays);
+  const hasEstimate = refChanges.some((c) => c.estimated) || (market === 'br' && brPoints.some((p) => p.estimated));
+  const toBRL = (v: number | null | undefined, cur: string) =>
+    v == null || !fx ? '' : ` ≈ ${brl(v * (cur === 'EUR' ? fx.EUR : cur === 'USD' ? fx.USD : 1))}`;
   const owned = items.reduce((a, i) => a + i.quantity, 0);
 
   return (
@@ -176,11 +187,11 @@ export default function CardScreen() {
           <SourceRow
             title="Cardmarket (Europa)" date={cm?.captured_on} url={cm?.url}
             note={cmTrend !== null ? `Hoje vs. média de 30 dias: ${cmTrend > 0 ? '+' : ''}${cmTrend.toFixed(1).replace('.', ',')}%` : undefined}
-            lines={[['Mínimo', money(cm?.price_min, cm?.currency ?? 'EUR')], ['Média', money(cm?.price_avg, cm?.currency ?? 'EUR')]]}
+            lines={[['Mínimo', money(cm?.price_min, cm?.currency ?? 'EUR')], ['Média', `${money(cm?.price_avg, cm?.currency ?? 'EUR')}${toBRL(cm?.price_avg, cm?.currency ?? 'EUR')}`]]}
           />
           <SourceRow
             title="TCGplayer (EUA)" date={tp?.captured_on} url={tp?.url}
-            lines={[['Mercado', money(tp?.price_avg, tp?.currency ?? 'USD')], ['Mínimo', money(tp?.price_min, tp?.currency ?? 'USD')]]}
+            lines={[['Mercado', `${money(tp?.price_avg, tp?.currency ?? 'USD')}${toBRL(tp?.price_avg, tp?.currency ?? 'USD')}`]]}
           />
         </Panel>
 
@@ -191,15 +202,19 @@ export default function CardScreen() {
             <Txt variant="label" style={styles.tableHead}> </Txt>
             {PERIODS.map((p) => <Txt key={p.key} variant="label" style={styles.tableCell}>{p.label}</Txt>)}
           </View>
-          {([['Referência', refChanges], ['Liga', ligaChanges], ['MYP', mypChanges]] as const).map(([label, ch]) => (
+          {([['Referência', refChanges], ['Liga', ligaChanges], ['MYP', mypChanges], ['EUA', tcgChanges]] as const).map(([label, ch]) => (
             <View key={label} style={styles.tableRow}>
               <Txt style={[styles.tableHead, { fontWeight: '700' }]}>{label}</Txt>
-              {ch.map((c) => <ChangePill key={c.key} pct={c.pct} style={styles.tableCell} />)}
+              {ch.map((c) => (
+                <Txt key={c.key} style={styles.tableCell}>
+                  <ChangePill pct={c.pct} />{c.estimated && c.pct !== null ? <Txt variant="small">*</Txt> : null}
+                </Txt>
+              ))}
             </View>
           ))}
           <Txt variant="small">
-            A variação compara o preço de hoje com o último preço coletado antes de cada data.
-            Enquanto não houver coleta tão antiga, aparece "sem histórico".
+            Liga e MYP: preço brasileiro coletado pelo app. EUA: histórico real do TCGplayer (versão em inglês da carta).
+            {hasEstimate ? ' * Estimado: preço brasileiro de hoje × a variação da carta nos EUA no período, até haver coleta brasileira tão antiga.' : ''}
           </Txt>
         </Panel>
 
@@ -212,10 +227,33 @@ export default function CardScreen() {
               ))}
             </View>
           </View>
-          <PriceChart points={points} />
+          <View style={styles.wrap}>
+            <Chip label="Brasil (R$)" active={market === 'br'} onPress={() => setMarket('br')} />
+            <Chip label="EUA (US$)" active={market === 'intl'} onPress={() => setMarket('intl')} />
+          </View>
+          {market === 'intl' ? (
+            <IntlChart points={points} />
+          ) : (
+            <PriceChart points={points} />
+          )}
+          {market === 'br' && hasEstimate ? (
+            <Txt variant="small">Antes da sua coleta começar, a linha é estimada pela tendência do TCGplayer.</Txt>
+          ) : null}
         </Panel>
       </ScrollView>
     </>
+  );
+}
+
+/** Gráfico em US$ (reaproveita o componente, trocando só o rótulo da moeda). */
+function IntlChart({ points }: { points: { date: string; value: number }[] }) {
+  if (!points.length) return <Txt variant="small">Sem histórico do TCGplayer para esta carta.</Txt>;
+  const last = points[points.length - 1];
+  return (
+    <View style={{ gap: 4 }}>
+      <Txt variant="small">Último: US$ {last.value.toFixed(2).replace('.', ',')} · {points.length} semanas</Txt>
+      <PriceChart points={points} fmt={(v) => `US$ ${v.toFixed(2).replace('.', ',')}`} />
+    </View>
   );
 }
 

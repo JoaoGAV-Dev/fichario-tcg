@@ -3,13 +3,13 @@
 import * as BackgroundTask from 'expo-background-task';
 import * as TaskManager from 'expo-task-manager';
 
-import { refreshDueToday } from './prices';
+import { runDailyCollection } from './daily';
 
 export const PRICE_TASK = 'fichario-precos-diarios';
 
 TaskManager.defineTask(PRICE_TASK, async () => {
   try {
-    await refreshDueToday();
+    await runDailyCollection();
     return BackgroundTask.BackgroundTaskResult.Success;
   } catch {
     return BackgroundTask.BackgroundTaskResult.Failed;

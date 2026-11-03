@@ -67,6 +67,31 @@ export function refPrice(snaps: Snapshot[], date: string, mode: RefMode, maxAge?
   return vals.length ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100 : null;
 }
 
+export interface PricePoint {
+  value: number;
+  estimated: boolean; // true = estimado pela tendência do TCGplayer (antes da sua coleta começar)
+}
+
+/** Tolerância para achar o preço semanal do TCGplayer perto de uma data. */
+const INTL_TOLERANCE_DAYS = 10;
+
+/**
+ * Preço brasileiro numa data. Se ainda não havia coleta brasileira naquela data, estima:
+ * preço BR de hoje × (preço TCGplayer na data ÷ preço TCGplayer hoje).
+ */
+export function brPriceAt(
+  snaps: Snapshot[], date: string, mode: RefMode, today = todayBR(), maxAge?: number,
+): PricePoint | null {
+  const real = refPrice(snaps, date, mode, maxAge);
+  if (real !== null) return { value: real, estimated: false };
+  const nowBr = refPrice(snaps, today, mode);
+  if (nowBr === null) return null;
+  const intlThen = priceOn(snaps, 'tcgplayer', date, INTL_TOLERANCE_DAYS);
+  const intlNow = priceOn(snaps, 'tcgplayer', today, INTL_TOLERANCE_DAYS);
+  if (!intlThen || !intlNow) return null;
+  return { value: Math.round(((nowBr * intlThen) / intlNow) * 100) / 100, estimated: true };
+}
+
 export interface Change {
   key: string;
   label: string;
@@ -74,6 +99,7 @@ export interface Change {
   now: number | null;
   then: number | null;
   pct: number | null; // null = ainda sem histórico suficiente
+  estimated?: boolean;
 }
 
 export function pct(now: number | null, then: number | null): number | null {
@@ -87,11 +113,17 @@ export function changesFor(
   pick: Source | { ref: RefMode },
   today = todayBR(),
 ): Change[] {
-  const at = (d: string, maxAge?: number) =>
-    typeof pick === 'string' ? priceOn(snaps, pick, d, maxAge) : refPrice(snaps, d, pick.ref, maxAge);
-  const now = at(today);
+  if (typeof pick !== 'string') {
+    const now = refPrice(snaps, today, pick.ref);
+    return PERIODS.map((p) => {
+      const then = brPriceAt(snaps, minusDays(today, p.days), pick.ref, today, MAX_AGE_DAYS);
+      return { key: p.key, label: p.label, days: p.days, now, then: then?.value ?? null, pct: pct(now, then?.value ?? null), estimated: then?.estimated };
+    });
+  }
+  const tol = pick === 'tcgplayer' ? INTL_TOLERANCE_DAYS : MAX_AGE_DAYS;
+  const now = priceOn(snaps, pick, today, pick === 'tcgplayer' ? INTL_TOLERANCE_DAYS : undefined);
   return PERIODS.map((p) => {
-    const then = at(minusDays(today, p.days), MAX_AGE_DAYS);
+    const then = priceOn(snaps, pick, minusDays(today, p.days), tol);
     return { key: p.key, label: p.label, days: p.days, now, then, pct: pct(now, then) };
   });
 }
@@ -99,10 +131,24 @@ export function changesFor(
 /** Pontos para o gráfico: um por dia em que houve coleta, dentro da janela. */
 export function chartSeries(snaps: Snapshot[], mode: RefMode, days: number, today = todayBR()) {
   const from = minusDays(today, days);
-  const dates = Array.from(new Set(snaps.filter((s) => s.captured_on >= from).map((s) => s.captured_on))).sort();
+  const dates = Array.from(new Set(snaps.filter((s) => s.captured_on >= from).map((s) => s.captured_on)));
+  if (!dates.includes(today)) dates.push(today);
+  dates.sort();
   return dates
-    .map((d) => ({ date: d, value: refPrice(snaps, d, mode) }))
-    .filter((p): p is { date: string; value: number } => p.value !== null);
+    .map((d) => {
+      const p = brPriceAt(snaps, d, mode, today);
+      return p ? { date: d, value: p.value, estimated: p.estimated } : null;
+    })
+    .filter((p): p is { date: string; value: number; estimated: boolean } => p !== null);
+}
+
+/** Série internacional (TCGplayer, US$) para o gráfico da carta. */
+export function intlSeries(snaps: Snapshot[], days: number, today = todayBR()) {
+  const from = minusDays(today, days);
+  return snaps
+    .filter((s) => s.source === 'tcgplayer' && s.captured_on >= from && s.price_avg !== null)
+    .sort((a, b) => (a.captured_on < b.captured_on ? -1 : 1))
+    .map((s) => ({ date: s.captured_on, value: s.price_avg as number }));
 }
 
 /** Referência internacional imediata: média Cardmarket de hoje vs. média dos últimos 30 dias. */
@@ -176,7 +222,7 @@ export async function getCollectionSnapshots(days = 400): Promise<Map<string, Sn
   const db = await getDb();
   const rows = await db.getAllAsync<RawRow>(
     `SELECT * FROM snapshots
-      WHERE source IN ('liga','myp') AND captured_on >= ?
+      WHERE source IN ('liga','myp','tcgplayer') AND captured_on >= ?
         AND card_id IN (SELECT DISTINCT card_id FROM items)`,
     [minusDays(todayBR(), days)],
   );
@@ -221,7 +267,8 @@ export async function cardsMissingToday(source: Source): Promise<(CardRow & { li
   return db.getAllAsync<CardRow & { liga_url: string | null }>(
     `SELECT c.* FROM cards c
       WHERE c.id IN (SELECT DISTINCT card_id FROM items)
-        AND NOT EXISTS (SELECT 1 FROM snapshots s WHERE s.card_id = c.id AND s.source = ? AND s.captured_on = ?)
+        AND NOT EXISTS (SELECT 1 FROM snapshots s WHERE s.card_id = c.id AND s.source = ? AND s.captured_on = ?
+                          AND (s.raw IS NULL OR s.raw NOT LIKE '%"from":"set"%'))
       ORDER BY c.updated_at`,
     [source, todayBR()],
   );

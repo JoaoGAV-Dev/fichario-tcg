@@ -79,8 +79,8 @@ export function Empty({ title, children }: { title: string; children?: ReactNode
 
 /** Gráfico de linha com área, eixo de valores (3 marcas) e datas — sem biblioteca extra. */
 export function PriceChart({
-  points, height = 170, color,
-}: { points: { date: string; value: number }[]; height?: number; color?: string }) {
+  points, height = 170, color, fmt = brl,
+}: { points: { date: string; value: number }[]; height?: number; color?: string; fmt?: (v: number) => string }) {
   const t = useTheme();
   const width = 340;
   if (points.length < 2) {
@@ -88,7 +88,7 @@ export function PriceChart({
       <View style={[styles.center, { height: 110 }]}>
         <Txt variant="small" style={{ textAlign: 'center' }}>
           {points.length === 1
-            ? `Hoje: ${brl(points[0].value)}. A linha aparece a partir do 2º dia de coleta.`
+            ? `Hoje: ${fmt(points[0].value)}. A linha aparece a partir do 2º dia de coleta.`
             : 'Sem preços ainda para montar o gráfico.'}
         </Txt>
       </View>
@@ -120,7 +120,7 @@ export function PriceChart({
       ))}
       {ticks.map((v, i) => (
         <SvgText key={`l${i}`} x={left - 6} y={y(v) + 4} fontSize={10} fill={t.textSecondary} textAnchor="end">
-          {brl(v).replace(',00', '')}
+          {fmt(v).replace(',00', '')}
         </SvgText>
       ))}
       <Polygon points={area} fill={stroke} fillOpacity={0.12} />

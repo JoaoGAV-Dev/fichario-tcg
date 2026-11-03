@@ -42,7 +42,7 @@ describe('painel', () => {
   });
   it('variação de 30 dias só com cartas comparáveis', () => {
     // a: 20 -> 10 (x2), c: 4 -> 5 ; b sem preço antigo
-    expect(d.change30).toEqual({ delta: (20 + 5) - (40 + 4), pct: -43.2, compared: 2 });
+    expect(d.change30).toEqual({ delta: (20 + 5) - (40 + 4), pct: -43.2, compared: 2, estimated: 0 });
   });
   it('cartas que entraram nos últimos 30 dias', () => {
     expect(d.entries30).toEqual({ distinct: 2, copies: 3, value: 25 });
@@ -69,5 +69,44 @@ describe('gráfico, movimentações e Pokédex', () => {
     const g = pokedexGroups(hs);
     expect(g.map((x) => [x.dexId, x.name, x.cards])).toEqual([[6, 'Charizard', 1], [25, 'a', 2]]);
     expect(baseName('Pikachu VMAX')).toBe('Pikachu');
+  });
+});
+
+import { brPriceAt } from '../src/lib/prices';
+import { mypSku, parseMypEditionPath, parseMypListing, parseTcgHistory, slugify } from '../src/lib/sources/parsers';
+
+describe('preço rápido e histórico longo', () => {
+  it('estima o preço BR antigo pela tendência do TCGplayer', () => {
+    const tcg = (daysAgo: number, v: number): Snapshot => ({ ...snap('x', 'liga', daysAgo, v), source: 'tcgplayer', currency: 'USD' });
+    const s = [snap('x', 'liga', 0, 100), tcg(0, 10), tcg(91, 8), tcg(182, 5)];
+    expect(brPriceAt(s, minusDays(today, 90), 'liga', today, 45)).toEqual({ value: 80, estimated: true });
+    expect(brPriceAt(s, minusDays(today, 180), 'liga', today, 45)).toEqual({ value: 50, estimated: true });
+    expect(brPriceAt(s, today, 'liga', today)).toEqual({ value: 100, estimated: false });
+    expect(brPriceAt([snap('x', 'liga', 0, 100)], minusDays(today, 90), 'liga', today, 45)).toBeNull();
+  });
+  it('lê a listagem da coleção na MYP com preço e estoque', () => {
+    const html = `<div class="card" data-ga-item-id="pokemon_obf_125/197"><a href="/pokemon/produto/199364/charizard-ex"></a>
+      <span class="quantidade-num">219</span><span class="card-preco moeda">
+                    R$ 2,50                </span></div>
+      <div class="card" data-ga-item-id="pokemon_obf_001/197"><a href="/pokemon/produto/1/oddish"></a><span class="quantidade-num">0</span></div>`;
+    expect(parseMypListing(html)).toEqual([
+      { sku: 'pokemon_obf_125/197', path: '/pokemon/produto/199364/charizard-ex', qty: 219, min: 2.5 },
+      { sku: 'pokemon_obf_001/197', path: '/pokemon/produto/1/oddish', qty: 0, min: null },
+    ]);
+    expect(mypSku('OBF', '125', 197)).toBe('pokemon_obf_125/197');
+  });
+  it('monta o endereço da coleção na MYP', () => {
+    expect(slugify('Escarlate e Violeta: Obsidiana em Chamas')).toBe('escarlate-e-violeta-obsidiana-em-chamas');
+    expect(slugify('Megaevolução: Heróis Excelsos')).toBe('megaevolucao-herois-excelsos');
+    expect(parseMypEditionPath('<ul class="breadcrumb"><li><a href="/pokemon">Pokémon</a></li>\n<li><a href="/pokemon/escarlate-e-violeta-obsidiana-em-chamas">x</a></li></ul>'))
+      .toBe('/pokemon/escarlate-e-violeta-obsidiana-em-chamas');
+  });
+  it('escolhe a variante e a condição certas no histórico do TCGplayer', () => {
+    const j = { result: [
+      { variant: 'Holofoil', condition: 'Lightly Played', totalQuantitySold: '830', buckets: [{ marketPrice: '5.11', bucketStartDate: '2026-11-02' }] },
+      { variant: 'Holofoil', condition: 'Near Mint', totalQuantitySold: '300', buckets: [
+        { marketPrice: '5.6', bucketStartDate: '2026-11-02' }, { marketPrice: '4.9', bucketStartDate: '2026-10-26' }] },
+    ] };
+    expect(parseTcgHistory(j, 'Holofoil')).toEqual([{ date: '2026-10-26', market: 4.9 }, { date: '2026-11-02', market: 5.6 }]);
   });
 });

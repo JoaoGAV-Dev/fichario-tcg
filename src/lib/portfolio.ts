@@ -1,6 +1,6 @@
 // Cálculos do painel da coleção (funções puras, testadas em tests/).
 import type { Item } from './collection';
-import { MAX_AGE_DAYS, minusDays, pct, priceOn, refPrice, todayBR, type RefMode, type Snapshot } from './prices';
+import { MAX_AGE_DAYS, brPriceAt, minusDays, pct, priceOn, refPrice, todayBR, type RefMode, type Snapshot } from './prices';
 
 export interface CardHolding {
   cardId: string;
@@ -24,6 +24,7 @@ export interface Mover {
   now: number;
   pct: number;
   delta: number; // em R$, já multiplicado pela quantidade
+  estimated: boolean;
 }
 
 export interface Dashboard {
@@ -32,16 +33,19 @@ export interface Dashboard {
   distinct: number;
   priced: number;
   activeSets: number;
-  change30: { delta: number; pct: number | null; compared: number };
+  change30: { delta: number; pct: number | null; compared: number; estimated: number };
   entries30: { distinct: number; copies: number; value: number };
   sets: SetSummary[];
   top: CardHolding[];
 }
 
-/** Preço de referência num dia; se ainda não havia coleta naquele dia, usa o primeiro preço conhecido. */
-export function priceForChart(snaps: Snapshot[], date: string, mode: RefMode): number | null {
-  const p = refPrice(snaps, date, mode);
-  if (p !== null) return p;
+/**
+ * Preço de referência num dia: real, ou estimado pela tendência do TCGplayer, ou (sem nada disso)
+ * o primeiro preço brasileiro conhecido.
+ */
+export function priceForChart(snaps: Snapshot[], date: string, mode: RefMode, today = todayBR()): number | null {
+  const p = brPriceAt(snaps, date, mode, today);
+  if (p !== null) return p.value;
   const first = [...snaps]
     .filter((s) => (s.source === 'liga' || s.source === 'myp') && (s.price_avg ?? s.price_min) !== null)
     .sort((a, b) => (a.captured_on < b.captured_on ? -1 : 1))[0];
@@ -67,14 +71,16 @@ export function buildDashboard(items: Item[], snapsByCard: Map<string, Snapshot[
   let now30 = 0;
   let then30 = 0;
   let compared = 0;
+  let estimated = 0;
   const thenDate = minusDays(today, 30);
   for (const h of holdings) {
     const snaps = snapsByCard.get(h.cardId) ?? [];
-    const t = refPrice(snaps, thenDate, mode, MAX_AGE_DAYS);
+    const t = brPriceAt(snaps, thenDate, mode, today, MAX_AGE_DAYS);
     if (h.price === null || t === null) continue;
     now30 += h.price * h.qty;
-    then30 += t * h.qty;
+    then30 += t.value * h.qty;
     compared++;
+    if (t.estimated) estimated++;
   }
 
   // Cartas que entraram nos últimos 30 dias
@@ -112,7 +118,7 @@ export function buildDashboard(items: Item[], snapsByCard: Map<string, Snapshot[
     distinct: holdings.length,
     priced: holdings.filter((h) => h.price !== null).length,
     activeSets: sets.size,
-    change30: { delta: round2(now30 - then30), pct: compared ? pct(now30, then30) : null, compared },
+    change30: { delta: round2(now30 - then30), pct: compared ? pct(now30, then30) : null, compared, estimated },
     entries30: { ...entries30, value: round2(entries30.value) },
     sets: [...sets.values()].map(({ best: _b, ...s }) => ({ ...s, value: round2(s.value) })).sort((a, b) => b.value - a.value),
     top: holdings.filter((h) => h.price !== null).sort((a, b) => (b.price ?? 0) * b.qty - (a.price ?? 0) * a.qty),
@@ -142,7 +148,7 @@ export function valueSeries(
     let v = 0;
     let any = false;
     for (const h of hs) {
-      const p = priceForChart(snapsByCard.get(h.cardId) ?? [], d, mode);
+      const p = priceForChart(snapsByCard.get(h.cardId) ?? [], d, mode, today);
       if (p !== null) {
         v += p * h.qty;
         any = true;
@@ -166,10 +172,10 @@ export function movers(
   for (const h of holdings) {
     const snaps = snapsByCard.get(h.cardId) ?? [];
     const now = h.price;
-    const then = refPrice(snaps, thenDate, mode, MAX_AGE_DAYS);
-    const p = pct(now, then);
+    const then = brPriceAt(snaps, thenDate, mode, today, MAX_AGE_DAYS);
+    const p = pct(now, then?.value ?? null);
     if (now === null || then === null || p === null || p === 0) continue;
-    list.push({ holding: h, then, now, pct: p, delta: round2((now - then) * h.qty) });
+    list.push({ holding: h, then: then.value, now, pct: p, delta: round2((now - then.value) * h.qty), estimated: then.estimated });
   }
   return {
     up: list.filter((m) => m.pct > 0).sort((a, b) => b.pct - a.pct),

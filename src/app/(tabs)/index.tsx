@@ -138,6 +138,9 @@ export default function Home() {
                     {dash.change30.delta < 0 ? '−' : '+'}{brl(Math.abs(dash.change30.delta))} ({pctLabel(dash.change30.pct)})
                   </Txt>{' '}
                   em 30 dias, pela variação de preço das suas cartas.
+                  {dash.change30.estimated ? (
+                    <Txt variant="small"> ({dash.change30.estimated} de {dash.change30.compared} estimadas pela tendência do TCGplayer)</Txt>
+                  ) : null}
                 </Txt>
               ) : (
                 <Txt variant="small">
@@ -236,6 +239,9 @@ export default function Home() {
                 </Txt>
               ) : null}
               <PriceChart points={series} />
+              {since && series.length && series[0].date < since ? (
+                <Txt variant="small">Antes de {dateBR(since)} (início da sua coleta) o valor é estimado pela tendência do TCGplayer.</Txt>
+              ) : null}
             </Panel>
 
             {/* ---------------------------------------------------- movimentações */}
@@ -254,7 +260,7 @@ export default function Home() {
                   key={m.holding.cardId}
                   image={m.holding.item.card.image}
                   title={m.holding.item.card.name_pt}
-                  badge={<ChangePill pct={m.pct} />}
+                  badge={<Txt variant="small"><ChangePill pct={m.pct} />{m.estimated ? '*' : ''}</Txt>}
                   subtitle={`${m.holding.item.card.set_name} · ${m.holding.item.card.local_id}`}
                   right={brl(m.now)}
                   rightSub={`${m.delta < 0 ? '−' : '+'}${brl(Math.abs(m.delta))}`}
@@ -262,8 +268,9 @@ export default function Home() {
                   onPress={() => router.push({ pathname: '/card/[id]', params: { id: m.holding.cardId } })}
                 />
               )) : (
-                <Txt variant="small">Sem movimentações ainda: precisa de pelo menos alguns dias de coleta.</Txt>
+                <Txt variant="small">Sem movimentações ainda: precisa de preço antigo (coleta ou histórico do TCGplayer).</Txt>
               )}
+              {moveList.some((m) => m.estimated) ? <Txt variant="small">* estimado pela tendência do TCGplayer.</Txt> : null}
             </Panel>
           </>
         )}

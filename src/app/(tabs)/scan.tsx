@@ -24,6 +24,7 @@ import { useLiga } from '@/lib/liga';
 import { findCandidates, type Candidate } from '@/lib/match';
 import { isOcrAvailable, readCardFooter } from '@/lib/ocr';
 import { getCardSnapshots, refPrice, refreshCards, todayBR } from '@/lib/prices';
+import { cachedMypPrice, intlPriceBRL, warmCard } from '@/lib/sources/fast';
 import { useSettings } from '@/lib/settings';
 
 type Mode = 'auto' | 'consulta';
@@ -39,6 +40,7 @@ interface SessionRow {
   variant: Variant;
   added: number; // quantas cópias esta sessão adicionou
   price: number | null | undefined; // undefined = buscando
+  priceLabel?: string; // de onde veio o preço mostrado
 }
 
 const PAUSE_BETWEEN_FRAMES_MS = 250;
@@ -97,20 +99,38 @@ export default function ScanScreen() {
     setTimeout(() => setFlash((f) => (f === msg ? null : f)), 2500);
   }
 
-  /** Busca o preço da carta (coleta MYP na hora se ainda não tem de hoje). */
-  const loadPrice = useCallback(async (cardId: string, key: string) => {
+  /**
+   * Preço quase instantâneo: 1) preço brasileiro já salvo hoje, 2) menor preço da MYP em cache da coleção,
+   * 3) preço internacional convertido (≈R$). Em paralelo, baixa a coleção inteira da MYP e o histórico.
+   */
+  const loadPrice = useCallback(async (cardId: string, key: string, variant: Variant) => {
+    const put = (price: number | null, priceLabel?: string) =>
+      setRows((rs) => rs.map((r) => (r.key === key ? { ...r, price, priceLabel } : r)));
     try {
-      const row = await ensureCard(cardId);
-      let snaps = await getCardSnapshots(cardId);
-      if (!snaps.some((s) => s.source === 'myp' && s.captured_on === todayBR())) {
-        await refreshCards([row], undefined, 0);
-        snaps = await getCardSnapshots(cardId);
+      const card = await ensureCard(cardId);
+      const today = todayBR();
+      const local = refPrice(await getCardSnapshots(cardId, 3), today, refMode);
+      if (local !== null) put(local, 'Liga/MYP hoje');
+      else {
+        const cached = await cachedMypPrice(card);
+        if (cached !== null) put(cached, 'MYP · menor preço');
+        else {
+          const intl = await intlPriceBRL(cardId);
+          if (intl) put(intl.value, `≈ ${intl.label}`);
+        }
       }
-      const price = refPrice(snaps, todayBR(), refMode);
-      setRows((rs) => rs.map((r) => (r.key === key ? { ...r, price } : r)));
-      if (!snaps.some((s) => s.source === 'liga')) liga.start([row]);
+      // Segundo plano: coleção inteira da MYP (deixa as próximas cartas instantâneas) + histórico
+      await warmCard(card, variant);
+      const after = refPrice(await getCardSnapshots(cardId, 3), today, refMode) ?? (await cachedMypPrice(card));
+      if (after !== null) put(after, 'MYP · menor preço');
+      else if (local === null) setRows((rs) => rs.map((r) => (r.key === key && r.price === undefined ? { ...r, price: null } : r)));
+      refreshCards([card], undefined, 0).then(async () => {
+        const full = refPrice(await getCardSnapshots(cardId, 3), todayBR(), refMode);
+        if (full !== null) put(full, 'Liga/MYP · médio');
+      }).catch(() => {});
+      liga.start([card]);
     } catch {
-      setRows((rs) => rs.map((r) => (r.key === key ? { ...r, price: null } : r)));
+      setRows((rs) => rs.map((r) => (r.key === key && r.price === undefined ? { ...r, price: null } : r)));
     }
   }, [refMode, liga]);
 
@@ -130,7 +150,7 @@ export default function ScanScreen() {
       const key = `${c.card.id}-${now}`;
       setRows((rs) => [{ key, itemId: null, cardId: c.card.id, name: c.card.name, label, image: c.card.image, variant: 'normal' as Variant, added: 0, price: undefined }, ...rs].slice(0, 30));
       showFlash(`${c.card.name} · ${label}`);
-      loadPrice(c.card.id, key);
+      loadPrice(c.card.id, key, 'normal');
       return;
     }
 
@@ -146,7 +166,7 @@ export default function ScanScreen() {
         return [{ key, itemId, cardId: c.card.id, name: c.card.name, label, image: c.card.image, variant, added: 1, price: undefined }, ...rs];
       });
       showFlash(`✓ ${c.card.name} adicionada`);
-      if (isNew) loadPrice(c.card.id, key);
+      if (isNew) loadPrice(c.card.id, key, variant);
     } catch (e) {
       showFlash(`Erro ao adicionar: ${String(e).slice(0, 60)}`);
     }
@@ -324,8 +344,11 @@ export default function ScanScreen() {
                     <View style={{ flex: 1, gap: 2 }}>
                       <Txt numberOfLines={1} style={{ fontWeight: '700' }}>{r.name}</Txt>
                       <Txt variant="small">{r.label}{r.itemId !== null ? ` · ${VARIANT_LABEL[r.variant]}` : ''}</Txt>
-                      <Txt variant="small" style={{ fontWeight: '700' }}>
-                        {r.price === undefined ? 'buscando preço…' : brl(r.price)}
+                      <Txt variant="small">
+                        <Txt variant="small" style={{ fontWeight: '800', color: t.text }}>
+                          {r.price === undefined ? 'buscando preço…' : r.price === null ? 'sem preço' : brl(r.price)}
+                        </Txt>
+                        {r.priceLabel && r.price ? `  ${r.priceLabel}` : ''}
                       </Txt>
                     </View>
                   </Pressable>

@@ -57,6 +57,20 @@ const MIGRATIONS: string[] = [
   ALTER TABLE cards ADD COLUMN set_logo TEXT;
   CREATE INDEX IF NOT EXISTS items_created ON items(created_at);
   `,
+  // v3: preço instantâneo (cache da MYP por coleção) e id do TCGplayer para o histórico de 1 ano
+  `
+  ALTER TABLE cards ADD COLUMN tcgplayer_id INTEGER;
+  CREATE TABLE IF NOT EXISTS myp_set (
+    sku TEXT PRIMARY KEY,
+    slug TEXT NOT NULL,
+    path TEXT NOT NULL,
+    price_min REAL,
+    qty INTEGER NOT NULL DEFAULT 0,
+    fetched_on TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS myp_set_slug ON myp_set(slug, fetched_on);
+  CREATE INDEX IF NOT EXISTS snapshots_source ON snapshots(source, captured_on);
+  `,
 ];
 
 async function open(): Promise<SQLiteDatabase> {

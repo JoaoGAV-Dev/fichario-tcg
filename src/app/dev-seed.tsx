@@ -6,7 +6,7 @@ import { View } from 'react-native';
 
 import { Txt } from '@/components/ui';
 import { addToCollection, ensureCard } from '@/lib/collection';
-import { refreshCards } from '@/lib/prices';
+import { runDailyCollection } from '@/lib/daily';
 
 const SAMPLE = ['sv03-125', 'me01-086', 'sv03-124', 'swsh12-186'];
 
@@ -23,7 +23,8 @@ export default function DevSeed() {
           setMsg(`Erro em ${id}: ${e}`);
         }
       }
-      await refreshCards(rows, (d, n) => setMsg(`Preços ${d}/${n}`), 300);
+      setMsg(`Coletando preços de ${rows.length} cartas…`);
+      await runDailyCollection();
       router.replace('/');
     })();
   }, []);
