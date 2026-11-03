@@ -21,6 +21,7 @@ import sys
 import time
 import unicodedata
 
+os.environ.setdefault("TF_USE_LEGACY_KERAS", "1")  # Keras 2 (tf_keras): conversão TFLite estável
 import cv2
 import numpy as np
 import requests
@@ -169,62 +170,125 @@ def augment(src, rng):
     return cv2.imdecode(enc, cv2.IMREAD_UNCHANGED)
 
 
+# ---------------------------------------------------------------- negativos (não é carta)
+
+def negatives(real_neg_imgs, rng, n=300):
+    """Recortes que NÃO são cartas: fundo, teclado, pedaço de carta (arte interna), ruído."""
+    out = []
+    for k in range(n):
+        kind = k % 3
+        if kind == 0 and real_neg_imgs:
+            img = real_neg_imgs[k % len(real_neg_imgs)]
+            h0, w0 = img.shape[:2]
+            cw = int(rng.uniform(0.3, 0.9) * w0)
+            ch = int(cw * 88 / 63)
+            ch = min(ch, h0 - 1)
+            x = int(rng.uniform(0, w0 - cw))
+            y = int(rng.uniform(0, h0 - ch))
+            out.append(cv2.resize(img[y:y + ch, x:x + cw], (W, H), interpolation=cv2.INTER_AREA))
+        elif kind == 1:
+            base = rng.integers(0, 255, 3).astype(np.float32)
+            g = np.broadcast_to(base, (H, W, 3)) + rng.normal(0, rng.uniform(5, 40), (H, W, 3))
+            g = cv2.GaussianBlur(np.clip(g, 0, 255).astype(np.uint8), (0, 0), rng.uniform(0.5, 4))
+            out.append(g)
+        else:
+            out.append(None)  # preenchido com pedaço de carta (precisa do banco)
+    return out
+
+
 # ---------------------------------------------------------------- modelos
 
+def _regions(h, w, kind):
+    import math
+    r = [(0, h, 0, w)]
+    if kind == 'full':
+        r0, r1 = math.ceil(0.6 * h), math.floor(0.4 * h)
+        c0, c1 = math.ceil(0.6 * w), math.floor(0.4 * w)
+        r += [(0, r0, 0, c0), (0, r0, c1, w), (r1, h, 0, c0), (r1, h, c1, w)]
+        r += [(0, math.ceil(0.4 * h), 0, w), (math.floor(0.3 * h), math.ceil(0.7 * h), 0, w), (math.floor(0.6 * h), h, 0, w)]
+    else:
+        r += [(0, h, 0, math.ceil(0.6 * w)), (0, h, math.floor(0.4 * w), w),
+              (0, math.ceil(0.6 * h), 0, w), (math.floor(0.4 * h), h, 0, w)]
+    return r
+
+
 def make_feature_model(name):
-    import keras
-    from keras import layers
+    """Imagem W x H -> descritor regional (média por região do último mapa de características,
+    cada região normalizada; regiões da carta inteira + da arte)."""
+    import tensorflow as tf
+    keras = tf.keras
+    L = keras.layers
+    kw = dict(include_top=False, weights='imagenet', input_shape=(None, None, 3), pooling=None)
     if name == 'mnv3l':
-        bb = keras.applications.MobileNetV3Large(include_top=False, weights='imagenet', input_shape=(None, None, 3),
-                                                 pooling='avg', include_preprocessing=True)
+        bb = keras.applications.MobileNetV3Large(include_preprocessing=True, **kw)
     elif name == 'mnv3s':
-        bb = keras.applications.MobileNetV3Small(include_top=False, weights='imagenet', input_shape=(None, None, 3),
-                                                 pooling='avg', include_preprocessing=True)
+        bb = keras.applications.MobileNetV3Small(include_preprocessing=True, **kw)
     elif name == 'effb0':
-        bb = keras.applications.EfficientNetB0(include_top=False, weights='imagenet', input_shape=(None, None, 3),
-                                               pooling='avg')
+        bb = keras.applications.EfficientNetB0(**kw)
     else:
         raise ValueError(name)
-    inp = keras.Input((H, W, 3), batch_size=None, name='card')
-    full = bb(inp)
+    inp = keras.Input((H, W, 3), name='card')
+    fmap = bb(inp)
     top, bot = round(ART[0] * H), H - round(ART[1] * H)
     left, right = round(ART[2] * W), W - round(ART[3] * W)
-    art = layers.Cropping2D(((top, bot), (left, right)))(inp)
-    art = layers.Resizing(ART_H, ART_W, interpolation='bilinear')(art)
-    artf = bb(art)
-    return keras.Model(inp, [full, artf], name=f'feat_{name}')
+    art = L.Cropping2D(((top, bot), (left, right)))(inp)
+    art = L.Resizing(ART_H, ART_W, interpolation='bilinear')(art)
+    amap = bb(art)
+    outs = []
+    for m, kind in ((fmap, 'full'), (amap, 'art')):
+        h, w = int(m.shape[1]), int(m.shape[2])
+        for (a, b, c, d) in _regions(h, w, kind):
+            v = L.Lambda(lambda t, a=a, b=b, c=c, d=d: tf.reduce_mean(t[:, a:b, c:d, :], axis=[1, 2]))(m)
+            outs.append(L.UnitNormalization()(v))
+    n_full = len(_regions(int(fmap.shape[1]), int(fmap.shape[2]), 'full'))
+    model = keras.Model(inp, L.Concatenate()(outs), name=f'feat_{name}')
+    C = int(fmap.shape[-1])
+    log(f'[{name}] mapa {fmap.shape[1]}x{fmap.shape[2]}x{C}, arte {amap.shape[1]}x{amap.shape[2]}; '
+        f'descritor {model.output_shape[-1]} ({n_full} regiões carta + {len(outs) - n_full} arte)')
+    return model, n_full * C
 
 
 def feats(model, imgs, bs=64):
-    fa, fb = [], []
+    out = []
     for i in range(0, len(imgs), bs):
-        a, b = model.predict_on_batch(np.asarray(imgs[i:i + bs], np.float32))
-        fa.append(np.asarray(a))
-        fb.append(np.asarray(b))
-    return np.concatenate(fa), np.concatenate(fb)
+        out.append(np.asarray(model.predict_on_batch(np.asarray(imgs[i:i + bs], np.float32)), np.float32))
+    return np.concatenate(out)
 
 
 def l2n(x):
     return x / np.maximum(1e-8, np.linalg.norm(x, axis=1, keepdims=True))
 
 
-def combine(full, art, mode):
-    if mode == 'full':
-        return full
-    if mode == 'art':
-        return art
-    return np.concatenate([l2n(full), l2n(art)], 1) if mode == 'cat' else None
-
-
-def fit_pca(X, white):
+def pca_basis(X, k, seed=0):
+    from sklearn.utils.extmath import randomized_svd
     mean = X.mean(0)
-    Xc = X - mean
-    cov = (Xc.T @ Xc) / len(X)
-    ev, V = np.linalg.eigh(cov)
-    idx = np.argsort(ev)[::-1][:DIM]
-    ev, V = ev[idx], V[:, idx]
-    P = V / np.sqrt(ev + ev[0] * 1e-3)[None, :] if white else V
-    return mean.astype(np.float32), P.astype(np.float32)
+    _, S, Vt = randomized_svd(X - mean, n_components=k, n_iter=4, random_state=seed)
+    ev = (S ** 2) / len(X)
+    return mean.astype(np.float32), Vt.T.astype(np.float32), ev.astype(np.float32)
+
+
+def fit_projection(Xdb, Xa, ia, method):
+    """Projeção D -> 256. 'pcaw': PCA com branqueamento. 'lw': branqueamento aprendido com pares
+    (carta, foto simulada da mesma carta): esconde o que muda com luz/ângulo, realça o que distingue cartas."""
+    k1 = min(1024, Xdb.shape[1], len(Xdb) - 1)
+    mean, V1, ev = pca_basis(Xdb, k1 if method == 'lw' else DIM)
+    if method == 'pcaw':
+        P = V1 / np.sqrt(ev + ev[0] * 1e-3)[None, :]
+        return mean, P.astype(np.float32)
+    Zdb = (Xdb - mean) @ V1
+    Za = (Xa - mean) @ V1
+    D = Za - Zdb[ia]
+    Sw = (D.T @ D) / len(D)
+    Sw += np.eye(len(Sw), dtype=Sw.dtype) * (np.trace(Sw) / len(Sw)) * 0.05
+    e, U = np.linalg.eigh(Sw.astype(np.float64))
+    W1 = (U / np.sqrt(e)[None, :]) @ U.T
+    Y = Zdb @ W1
+    Y -= Y.mean(0)
+    cov = (Y.T @ Y) / len(Y)
+    e2, U2 = np.linalg.eigh(cov)
+    V2 = U2[:, np.argsort(e2)[::-1][:DIM]]
+    P = V1 @ W1 @ V2
+    return mean, P.astype(np.float32)
 
 
 def project(X, mean, P):
@@ -246,71 +310,61 @@ def real_queries():
         label = os.path.basename(f).split('__')[0]
         img = cv2.cvtColor(cv2.imread(f), cv2.COLOR_BGR2RGB)
         qs, g = find_quads(img)
-        cands = [warp(img, q) for q in qs] + [warp(img, g)]
-        kinds = ['borda'] * len(qs) + ['centro']
-        out.append({'file': os.path.basename(f), 'label': label, 'cands': cands, 'kinds': kinds})
+        cands = [warp(img, q) for q in qs[:2]] + [warp(img, g)]
+        kinds = ['borda'] * len(qs[:2]) + ['centro']
+        out.append({'file': os.path.basename(f), 'label': label, 'img': img, 'cands': cands, 'kinds': kinds})
     return out
 
 
-def evaluate(db, names, syn_q, syn_truth, real, real_q):
-    """db: N x D normalizado. syn_q: M x D. real_q: lista (por foto) de matrizes (candidatos x D)."""
+def evaluate(db, names, syn_q, syn_truth, real, real_q, neg_q):
     S = syn_q @ db.T
     top = np.argsort(-S, 1)[:, :5]
     t1 = top[:, 0]
-    id_ok = float(np.mean(t1 == syn_truth))
-    name_ok = float(np.mean([names[a] == names[b] for a, b in zip(t1, syn_truth)]))
-    top5 = float(np.mean([syn_truth[i] in top[i] for i in range(len(t1))]))
-    srt = np.sort(S, 1)
-    syn_scores = srt[:, -1]
+    syn_scores = S[np.arange(len(S)), t1]
+    correct = np.array([names[a] == names[b] for a, b in zip(t1, syn_truth)])
+    neg = (neg_q @ db.T).max(1)
+    # limiares: "min" deixa passar ~2% dos não-cartas; "strong" ~0,2%
+    tmin = float(np.quantile(neg, 0.98))
+    tstrong = float(max(tmin + 0.02, np.quantile(neg, 0.998)))
     res = []
     for r, Q in zip(real, real_q):
         s = Q @ db.T
         best_c = int(np.argmax(s.max(1)))
         row = s[best_c]
         o = np.argsort(-row)[:5]
-        # "margem": melhor nota menos a melhor nota de OUTRO nome
         other = next((row[j] for j in o[1:] if names[j] != names[o[0]]), row[o[1]])
         res.append({'file': r['file'], 'label': r['label'], 'cand': best_c, 'kind': r['kinds'][best_c],
                     'top': [int(j) for j in o], 'score': float(row[o[0]]), 'margin': float(row[o[0]] - other)})
     pos = [x for x in res if x['label'] in LABELS]
     real_ok = float(np.mean([LABELS[x['label']](names[x['top'][0]]) for x in pos])) if pos else 0.0
-    neg = [x['score'] for x in res if x['label'] == 'none']
-    return {'syn_top1_id': id_ok, 'syn_top1_name': name_ok, 'syn_top5_id': top5,
-            'syn_score_p10': float(np.percentile(syn_scores, 10)),
-            'real_name_acc': real_ok, 'real_pos_scores': [round(x['score'], 3) for x in pos],
-            'real_neg_scores': [round(s, 3) for s in neg]}, res
+    return {
+        'syn_top1_id': float(np.mean(t1 == syn_truth)), 'syn_top1_name': float(correct.mean()),
+        'syn_top5_id': float(np.mean([syn_truth[i] in top[i] for i in range(len(t1))])),
+        'thr_min': tmin, 'thr_strong': tstrong,
+        'syn_recall_min': float(np.mean(syn_scores >= tmin)), 'syn_recall_strong': float(np.mean(syn_scores >= tstrong)),
+        'syn_precision_min': float(correct[syn_scores >= tmin].mean()) if (syn_scores >= tmin).any() else 0.0,
+        'real_name_acc': real_ok, 'real_pos_scores': [round(x['score'], 3) for x in pos],
+        'real_neg_scores': [round(x['score'], 3) for x in res if x['label'] == 'none'],
+    }, res
 
 
 # ---------------------------------------------------------------- exportação
 
-def export_tflite(feat_model, mode, mean, P, path, quant=True):
-    import keras
+def export_tflite(feat_model, mean, P, path, quant=True):
     import tensorflow as tf
-    from keras import layers
+    keras = tf.keras
     inp = keras.Input((H, W, 3), batch_size=1, name='card')
-    full, art = feat_model(inp)
-    if mode == 'full':
-        x = full
-    elif mode == 'art':
-        x = art
-    else:
-        x = layers.Concatenate()([layers.UnitNormalization()(full), layers.UnitNormalization()(art)])
-    d = layers.Dense(DIM, name='pca')
+    x = feat_model(inp)
+    d = keras.layers.Dense(DIM, name='proj')
     y = d(x)
     d.set_weights([P, (-mean @ P).astype(np.float32)])
     model = keras.Model(inp, y)
-
-    @tf.function(input_signature=[tf.TensorSpec([1, H, W, 3], tf.float32)])
-    def serve(x):
-        return model(x, training=False)
-
-    conv = tf.lite.TFLiteConverter.from_concrete_functions([serve.get_concrete_function()], model)
+    conv = tf.lite.TFLiteConverter.from_keras_model(model)
     if quant:
-        conv.optimizations = [tf.lite.Optimize.DEFAULT]  # pesos em 8 bits: modelo ~4x menor
+        conv.optimizations = [tf.lite.Optimize.DEFAULT]
     data = conv.convert()
     with open(path, 'wb') as f:
         f.write(data)
-    return model
 
 
 def tflite_embed(path, imgs):
@@ -345,13 +399,19 @@ def contact(rows, path):
     cv2.imwrite(path, cv2.cvtColor(np.vstack(grid), cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 80])
 
 
+def _aug_job(args):
+    cid, seed = args
+    return augment(load_native(cid), np.random.default_rng(seed))
+
+
 # ---------------------------------------------------------------- principal
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--eval', action='store_true', help='testa várias redes/recortes e escolhe a melhor')
+    ap.add_argument('--eval', action='store_true', help='testa várias redes/projeções e escolhe a melhor')
     ap.add_argument('--limit', type=int, default=0)
     ap.add_argument('--nsyn', type=int, default=1500)
+    ap.add_argument('--naug', type=int, default=2, help='fotos simuladas por carta para aprender a projeção')
     args = ap.parse_args()
     os.makedirs(OUT, exist_ok=True)
     cfg = json.load(open(os.path.join(ROOT, 'config.json')))
@@ -362,60 +422,79 @@ def main():
     ids = [c['id'] for c in cards]
     names = [norm_name(c['name']) for c in cards]
     N = len(cards)
-    log('nomes de energia de escuridão no banco:', sorted({n for n in names if 'escurid' in n})[:12])
+    for lab, fn in LABELS.items():
+        hits = [f'{ids[i]}' for i in range(N) if fn(names[i])]
+        log(f'banco tem {len(hits)} cartas para "{lab}": {hits[:30]}')
 
+    import multiprocessing as mp
+    pool = mp.Pool(max(1, os.cpu_count() or 2))
     rng = np.random.default_rng(7)
     syn_idx = rng.choice(N, size=min(args.nsyn, N), replace=False)
-    syn_imgs = []
-    for k, i in enumerate(syn_idx):
-        syn_imgs.append(augment(load_native(ids[i]), np.random.default_rng(1000 + k)))
+    syn_imgs = pool.map(_aug_job, [(ids[i], 1000 + k) for k, i in enumerate(syn_idx)], chunksize=32)
+    ia = np.repeat(np.arange(N), args.naug)
+    aug_imgs_jobs = [(ids[i], 10_000_000 + k) for k, i in enumerate(ia)]
     real = real_queries()
-    log(f'{len(syn_imgs)} fotos simuladas, {len(real)} fotos reais')
+    neg_imgs = negatives([r['img'] for r in real if r['label'] == 'none'], rng)
+    for k in range(len(neg_imgs)):
+        if neg_imgs[k] is None:  # pedaço de uma carta (arte/meio) esticado: não pode bater com nada forte
+            c = load_native(ids[int(rng.integers(N))])
+            h, w = c.shape[:2]
+            y0 = int(rng.uniform(0.05, 0.4) * h)
+            x0 = int(rng.uniform(0.0, 0.3) * w)
+            neg_imgs[k] = cv2.resize(c[y0:y0 + int(0.45 * h), x0:x0 + int(0.6 * w)], (W, H))
+    log(f'{len(syn_imgs)} fotos simuladas p/ teste, {len(ia)} p/ treino, {len(neg_imgs)} negativos, {len(real)} fotos reais')
 
-    backbones = ['mnv3l', 'effb0', 'mnv3s'] if args.eval else [cfg['backbone']]
-    modes = ['full', 'art', 'cat'] if args.eval else [cfg['mode']]
-    whites = [False, True] if args.eval else [cfg['white']]
+    backbones = ['mnv3s', 'mnv3l'] if args.eval else [cfg['backbone']]
+    modes = ['full', 'cat'] if args.eval else [cfg['mode']]
+    methods = ['pcaw', 'lw'] if args.eval else [cfg['method']]
 
     table = []
     best = None
-    cache_feats = {}
+    models = {}
     for b in backbones:
-        fm = make_feature_model(b)
-        log(f'[{b}] extraindo características de {N} cartas…')
-        dbf, dba = [], []
+        fm, n_full = make_feature_model(b)
+        models[b] = fm
+        log(f'[{b}] banco…')
+        Xdb = []
         for i in range(0, N, 512):
-            batch = [load_card(cid) for cid in ids[i:i + 512]]
-            a, c = feats(fm, batch)
-            dbf.append(a)
-            dba.append(c)
-            if i % 4096 == 0:
-                log(f'  {i}/{N}')
-        dbf, dba = np.concatenate(dbf), np.concatenate(dba)
-        sqf, sqa = feats(fm, syn_imgs)
-        rq = [feats(fm, r['cands']) for r in real]
-        log(f'[{b}] pronto ({dbf.shape[1]} dims)')
+            Xdb.append(feats(fm, [load_card(cid) for cid in ids[i:i + 512]]).astype(np.float16))
+        Xdb = np.concatenate(Xdb)
+        log(f'[{b}] fotos simuladas de treino…')
+        Xa = []
+        for i in range(0, len(aug_imgs_jobs), 1024):
+            imgs = pool.map(_aug_job, aug_imgs_jobs[i:i + 1024], chunksize=16)
+            Xa.append(feats(fm, imgs).astype(np.float16))
+        Xa = np.concatenate(Xa)
+        Xs = feats(fm, syn_imgs)
+        Xn = feats(fm, neg_imgs)
+        Xr = [feats(fm, r['cands']) for r in real]
+        log(f'[{b}] características prontas ({Xdb.shape[1]} dims)')
         for mode in modes:
-            X = combine(dbf, dba, mode)
-            for white in whites:
-                mean, P = fit_pca(X, white)
-                db = project(X, mean, P)
-                sq = project(combine(sqf, sqa, mode), mean, P)
-                rqs = [project(combine(a, c, mode), mean, P) for a, c in rq]
-                m, res = evaluate(db, names, sq, syn_idx, real, rqs)
-                m.update({'backbone': b, 'mode': mode, 'white': white})
+            sl = slice(0, n_full) if mode == 'full' else slice(None)
+            for method in methods:
+                mean, P = fit_projection(Xdb[:, sl].astype(np.float32), Xa[:, sl].astype(np.float32), ia, method)
+                db = project(Xdb[:, sl].astype(np.float32), mean, P)
+                m, res = evaluate(db, names, project(Xs[:, sl], mean, P), syn_idx, real,
+                                  [project(x[:, sl], mean, P) for x in Xr], project(Xn[:, sl], mean, P))
+                m.update({'backbone': b, 'mode': mode, 'method': method})
                 table.append(m)
-                log(f'  {b:6s} {mode:4s} white={int(white)}  sint: id {m["syn_top1_id"]:.3f} nome {m["syn_top1_name"]:.3f} '
-                    f'top5 {m["syn_top5_id"]:.3f} | reais: {m["real_name_acc"]:.2f} pos {m["real_pos_scores"]} neg {m["real_neg_scores"]}')
-                key = (m['real_name_acc'], m['syn_top1_name'])
+                log(f'  {b:6s} {mode:4s} {method:4s} sint: id {m["syn_top1_id"]:.3f} nome {m["syn_top1_name"]:.3f} '
+                    f'top5 {m["syn_top5_id"]:.3f} | lim {m["thr_min"]:.2f}/{m["thr_strong"]:.2f} '
+                    f'recall {m["syn_recall_min"]:.2f}/{m["syn_recall_strong"]:.2f} prec {m["syn_precision_min"]:.3f} | '
+                    f'reais {m["real_name_acc"]:.2f} pos {m["real_pos_scores"]} neg {m["real_neg_scores"]}')
+                key = (m['real_name_acc'] + m['syn_top1_name'], m['syn_recall_min'])
                 if best is None or key > best[0]:
-                    best = (key, b, mode, white, mean, P, db, res, sq)
-        cache_feats[b] = fm
+                    best = (key, b, mode, method, mean, P, db, res, project(Xs[:, sl], mean, P), m, sl)
+        del Xa
+    pool.close()
 
-    _, b, mode, white, mean, P, db, res, sq = best
-    log(f'ESCOLHIDO: {b} {mode} white={white}')
-    json.dump({'backbone': b, 'mode': mode, 'white': white}, open(os.path.join(OUT, 'chosen.json'), 'w'))
+    _, b, mode, method, mean, P, db, res, sq, bm, sl = best
+    log(f'ESCOLHIDO: {b} {mode} {method}')
+    json.dump({'backbone': b, 'mode': mode, 'method': method}, open(os.path.join(OUT, 'chosen.json'), 'w'))
+    json.dump({'table': table, 'real': [{**x, 'top_ids': [ids[j] for j in x['top']],
+                                         'top_names': [names[j] for j in x['top']]} for x in res]},
+              open(os.path.join(OUT, 'report.json'), 'w'), indent=1)
 
-    # relatório visual: fotos reais (recorte usado x carta encontrada) e erros das simuladas
     rows = []
     for r, x in zip(real, res):
         t = x['top'][0]
@@ -429,30 +508,33 @@ def main():
     contact([(syn_imgs[k], load_card(ids[t1[k]]), f'{ids[syn_idx[k]]} -> {ids[t1[k]]} {S[k, t1[k]]:.3f} {names[t1[k]]}', False)
              for k in wrong], os.path.join(OUT, 'report_syn_errors.jpg'))
 
-    # exportação
-    fm = cache_feats[b]
+    # exportação: o modelo "inteiro" (rede + regiões + projeção) num .tflite
+    fm = models[b]
+    if mode == 'full':
+        # zera a parte da arte na projeção (o modelo exportado calcula as duas, mas só usa a da carta)
+        Pfull = np.zeros((fm.output_shape[-1], DIM), np.float32)
+        Pfull[sl] = P
+        mfull = np.zeros(fm.output_shape[-1], np.float32)
+        mfull[sl] = mean
+        P, mean = Pfull, mfull
     tfl = os.path.join(OUT, 'model.tflite')
-    sel = [i for i in range(0, N, max(1, N // 24))][:24]
+    sel = list(range(0, N, max(1, N // 24)))[:24]
     chk = [load_card(ids[i]) for i in sel]
     for quant in (True, False):
-        export_tflite(fm, mode, mean, P, tfl, quant)
+        export_tflite(fm, mean, P, tfl, quant)
         cos = (tflite_embed(tfl, chk) * db[sel]).sum(1)
-        log(f'tflite (8 bits={quant}) x keras: cosseno mín {cos.min():.4f}')
+        log(f'tflite (8 bits={quant}) x keras: cosseno mín {cos.min():.4f}; {os.path.getsize(tfl) / 1e6:.1f} MB')
         if cos.min() > 0.985:
             break
-    log(f'tflite x keras: cosseno mín {cos.min():.4f} médio {cos.mean():.4f}; tamanho {os.path.getsize(tfl) / 1e6:.1f} MB')
-    # o banco é recalculado com o próprio tflite? caro (N chamadas); usamos o do keras se bater bem
     db.astype('<f2').tofile(os.path.join(OUT, 'emb.f16'))
     with open(os.path.join(OUT, 'ids.txt'), 'w') as f:
         f.write('\n'.join(ids))
-    best_m = next(t for t in table if t['backbone'] == b and t['mode'] == mode and t['white'] == white)
     version = time.strftime('%Y%m%d') + '-' + os.environ.get('GITHUB_RUN_NUMBER', 'local')
     manifest = {'version': version, 'count': N, 'dim': DIM, 'w': W, 'h': H, 'backbone': b, 'mode': mode,
-                'white': white, 'tflite_cos_min': float(cos.min()), 'metrics': best_m,
-                'files': {'model': 'model.tflite', 'emb': 'emb.f16', 'ids': 'ids.txt'}}
+                'method': method, 'tflite_cos_min': float(cos.min()),
+                'thresholds': {'min': round(bm['thr_min'], 3), 'strong': round(bm['thr_strong'], 3)},
+                'metrics': bm, 'files': {'model': 'model.tflite', 'emb': 'emb.f16', 'ids': 'ids.txt'}}
     json.dump(manifest, open(os.path.join(OUT, 'manifest.json'), 'w'), indent=1)
-    json.dump({'table': table, 'real': [{**x, 'top_ids': [ids[j] for j in x['top']]} for x in res]},
-              open(os.path.join(OUT, 'report.json'), 'w'), indent=1)
     log('fim')
 
 
