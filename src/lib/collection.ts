@@ -184,3 +184,11 @@ export async function updateCardCache(cardId: string, patch: { myp_path?: string
   if (patch.myp_path) await db.runAsync('UPDATE cards SET myp_path = ? WHERE id = ?', [patch.myp_path, cardId]);
   if (patch.liga_url) await db.runAsync('UPDATE cards SET liga_url = ? WHERE id = ?', [patch.liga_url, cardId]);
 }
+
+/** Quantas cópias você tem de cada carta da coleção (todas as versões somadas). */
+export async function ownedQtyForSet(setId: string): Promise<Map<string, number>> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<{ id: string; qty: number }>(
+    'SELECT c.id, SUM(i.quantity) AS qty FROM items i JOIN cards c ON c.id = i.card_id WHERE c.set_id = ? GROUP BY c.id', [setId]);
+  return new Map(rows.filter((r) => r.qty > 0).map((r) => [r.id, r.qty]));
+}
