@@ -52,7 +52,7 @@ BASIC_PT = {'Grass': 'Energia de Planta', 'Fire': 'Energia de Fogo', 'Water': 'E
             'Lightning': 'Energia Elétrica', 'Psychic': 'Energia Psíquica', 'Fighting': 'Energia de Luta',
             'Darkness': 'Energia de Escuridão', 'Metal': 'Energia de Metal', 'Fairy': 'Energia de Fada'}
 # Coleções que o TCGdex não tem (ou não tem imagem) e que vêm do pokemontcg.io
-PTCG_EXTRA_SETS = {'sve': 'Energias Escarlate e Violeta'}
+PTCG_EXTRA_SETS = {'sve': 'Energias Escarlate e Violeta', 'mee': 'Energias Megaevolução'}
 
 
 def _ptcg_set_id(tid):
@@ -144,6 +144,8 @@ def fetch_cards():
     ptset_ids = {s['id'] for s in ptsets}
     by_name = {s['name'].lower(): s['id'] for s in ptsets}
     recovered = 0
+    from collections import Counter
+    log('sem imagem no TCGdex, por coleção:', Counter(set_of(c['id']) for c in no_img).most_common(25))
     for c in no_img:
         sid = set_of(c['id'])
         if '/tcgp/' in str(c.get('image')) or sid.startswith(('A', 'P-A', 'B')) and sid[:1].isupper():
@@ -162,6 +164,7 @@ def fetch_cards():
     extra = 0
     for ps, sname in PTCG_EXTRA_SETS.items():
         data = _get_json(ses, 'https://api.pokemontcg.io/v2/cards', params={'q': f'set.id:{ps}', 'pageSize': 250})
+        log(f'pokemontcg.io {ps}: {len((data or {}).get("data", []))} cartas')
         for c in (data or {}).get('data', []):
             try:
                 n = int(re.sub(r'\D', '', c['number']) or 0)
@@ -184,6 +187,19 @@ def fetch_cards():
                           'official': st.get('printedTotal') or 0, 'img': img, 'src': 'ptcg', 'usd': usd or ''})
             seen.add(cid)
             extra += 1
+        if not (data or {}).get('data'):
+            # reserva: imagens oficiais hospedadas pelo Limitless TCG (energias básicas 1–8)
+            rel = {'sve': '2023-03-31', 'mee': '2025-09-26'}.get(ps, '')
+            for n, typ in enumerate(['Grass', 'Fire', 'Water', 'Lightning', 'Psychic', 'Fighting', 'Darkness', 'Metal'], 1):
+                cid = f'{ps}-{n:03d}'
+                if cid in seen:
+                    continue
+                url = f'https://limitlesstcg.nyc3.cdn.digitaloceanspaces.com/tpci/{ps.upper()}/{ps.upper()}_{n:03d}_R_EN_SM.png'
+                cards.append({'id': cid, 'name': BASIC_PT[typ], 'local': f'{n:03d}', 'set': ps, 'set_name': sname,
+                              'release': rel, 'official': 8, 'img': url, 'src': 'limitless', 'usd': ''})
+                seen.add(cid)
+                extra += 1
+            log(f'{ps}: usando imagens do Limitless TCG')
     log(f'{len(pt)} cartas PT e {len(en)} EN na lista; {len(cards)} no banco '
         f'({sum(c["src"] == "en" for c in cards)} PT com imagem EN, {sum(c["src"] == "en-only" for c in cards)} só em inglês, '
         f'{recovered} sem imagem no TCGdex tentadas no pokemontcg.io, {extra} de coleções que faltam no TCGdex)')
