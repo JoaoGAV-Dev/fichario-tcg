@@ -56,15 +56,20 @@ jobs:
             sleep 20
             adb exec-out screencap -p > diag/01-vazio.png || true
             adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://dev-seed" com.seunome.fichariotcg || true
-            sleep 60
-            adb exec-out screencap -p > diag/02-painel.png || true
-            adb shell input swipe 160 520 160 140 1200; sleep 3; adb exec-out screencap -p > diag/03-painel.png || true
+            sleep 75
+            adb exec-out screencap -p > diag/02-coleta.png || true
+            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://" com.seunome.fichariotcg || true
+            sleep 12
+            adb exec-out screencap -p > diag/03-painel.png || true
             adb shell input swipe 160 520 160 140 1200; sleep 3; adb exec-out screencap -p > diag/04-painel.png || true
             adb shell input swipe 160 520 160 140 1200; sleep 3; adb exec-out screencap -p > diag/05-painel.png || true
             adb shell input swipe 160 520 160 140 1200; sleep 3; adb exec-out screencap -p > diag/06-painel.png || true
+            adb shell input swipe 160 520 160 140 1200; sleep 3; adb exec-out screencap -p > diag/06b-painel.png || true
             adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://card/sv03-125" com.seunome.fichariotcg || true
             sleep 15
             adb exec-out screencap -p > diag/07-carta.png || true
+            adb shell input swipe 160 520 160 100 1200; sleep 2; adb shell input swipe 160 520 160 100 1200; sleep 3; adb exec-out screencap -p > diag/07b-carta.png || true
+            adb shell input swipe 160 520 160 100 1200; sleep 3; adb exec-out screencap -p > diag/07c-carta.png || true
             adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://search?q=charizard" com.seunome.fichariotcg || true
             sleep 20
             adb exec-out screencap -p > diag/08-busca.png || true
