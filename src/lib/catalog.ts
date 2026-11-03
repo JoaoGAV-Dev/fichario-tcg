@@ -110,3 +110,13 @@ export async function catalogByName(name: string): Promise<CatalogRow[]> {
   }
   return rows;
 }
+
+/** Cartas do catálogo pelos ids (na ordem pedida; ids desconhecidos ficam de fora). */
+export async function catalogByIds(ids: string[]): Promise<CatalogRow[]> {
+  if (!ids.length) return [];
+  const db = await getDb();
+  const rows = await db.getAllAsync<CatalogRow>(
+    `SELECT id, set_id, local_id, name, image FROM catalog WHERE id IN (${ids.map(() => '?').join(',')})`, ids);
+  const by = new Map(rows.map((r) => [r.id, r]));
+  return ids.map((i) => by.get(i)).filter((r): r is CatalogRow => !!r);
+}

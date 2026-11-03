@@ -98,9 +98,17 @@ def guide_quad(img_w, img_h):
 
 
 def warp(img, q, w=W, h=H):
+    q = np.asarray(q, np.float32)
+    qh = (np.linalg.norm(q[3] - q[0]) + np.linalg.norm(q[2] - q[1])) / 2
+    if qh > 1.6 * h:
+        # carta grande na foto: reduz antes (evita serrilhado no recorte)
+        f = 1.2 * h / qh
+        img = cv2.resize(img, (max(1, int(round(img.shape[1] * f))), max(1, int(round(img.shape[0] * f)))),
+                         interpolation=cv2.INTER_AREA)
+        q = q * f
     dst = np.array([[0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]], np.float32)
-    M = cv2.getPerspectiveTransform(np.asarray(q, np.float32), dst)
-    return cv2.warpPerspective(img, M, (w, h), flags=cv2.INTER_AREA, borderMode=cv2.BORDER_REPLICATE)
+    M = cv2.getPerspectiveTransform(q, dst)
+    return cv2.warpPerspective(img, M, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
 
 
 def find_quads(img_rgb):

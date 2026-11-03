@@ -60,11 +60,23 @@
           "android": {
             "enableMinifyInReleaseBuilds": false,
             "enableShrinkResourcesInReleaseBuilds": false,
-            "extraProguardRules": "-keep class * extends androidx.room.RoomDatabase { <init>(); }\n-keep class androidx.work.** { *; }"
+            "extraProguardRules": "-keep class * extends androidx.room.RoomDatabase { <init>(); }\n-keep class androidx.work.** { *; }",
+            "packagingOptions": {
+              "pickFirst": [
+                "**/libc++_shared.so"
+              ]
+            }
           }
         }
       ],
-      "./plugins/with-webview-warmup.js"
+      "./plugins/with-webview-warmup.js",
+      "./plugins/with-abi-filters.js",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "O app usa suas fotos apenas para reconhecer cartas que você escolher."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
