@@ -6,7 +6,7 @@ import { FlatList, Pressable, StyleSheet, useWindowDimensions, View } from 'reac
 import { Chip, Txt } from '@/components/ui';
 import { useTheme } from '@/hooks/use-theme';
 import { ownedBySet } from '@/lib/collection';
-import { setIdOf, setIndex, type CardBrief, type SetBrief } from '@/lib/tcgdex';
+import { setIdOf, setIndex, type CardBrief, type SetBrief, imgUrl } from '@/lib/tcgdex';
 
 type SetInfo = SetBrief & { order: number; serie: string };
 
@@ -58,7 +58,7 @@ export function CardGrid({ cards, header }: { cards: CardBrief[]; header?: React
           <Pressable onPress={() => router.push({ pathname: '/card/[id]', params: { id: item.id } })} style={{ width: size, marginBottom: 10 }}>
             <View style={{ opacity: mine || onlyOwned ? 1 : 0.55 }}>
               {item.image ? (
-                <Image source={{ uri: `${item.image}/low.webp` }} style={{ width: size, height: size * 1.4, borderRadius: 6 }} contentFit="contain" transition={100} />
+                <Image source={{ uri: imgUrl(item.image, 'low') }} style={{ width: size, height: size * 1.4, borderRadius: 6 }} contentFit="contain" transition={100} />
               ) : (
                 <View style={[styles.noimg, { width: size, height: size * 1.4, backgroundColor: t.backgroundElement }]}>
                   <Txt variant="small" style={{ textAlign: 'center' }}>{item.name}</Txt>

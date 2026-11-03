@@ -77,10 +77,12 @@ class CardScannerView(context: Context, appContext: AppContext) : ExpoView(conte
   @Volatile var strongScore = 0.90f
 
   // ---- estado do reconhecimento (só na thread de análise)
-  private class Emitted(val ids: Set<String>)
+  private class Emitted(val ids: Set<String>, val at: Long)
   private var lastEmitted: Emitted? = null
+  // última carta avisada (mesmo depois de "sair da câmera"): evita contar a mesma 2x se a mão demora a sair
+  private var lastCard: Emitted? = null
   private val history = ArrayDeque<List<Match>>()
-  private var absent = 0
+  private var absentSince = 0L
   private var lastRecognize = 0L
   private var recognizedUntil = 0L
   private var lastState = ""
@@ -282,8 +284,8 @@ class CardScannerView(context: Context, appContext: AppContext) : ExpoView(conte
     val good = result != null && result.top.score >= minScore
     val shown: Array<Point>? = if (good) result!!.quad else quads.firstOrNull()
     val present = quads.isNotEmpty() || (good && result!!.guide)
-    if (present) absent = 0 else absent++
-    if (absent >= 12) {
+    if (present) absentSince = 0L else if (absentSince == 0L) absentSince = now
+    if (absentSince != 0L && now - absentSince >= ABSENT_RESET_MS) {
       // a carta saiu da câmera: a próxima (mesmo que igual) conta de novo
       lastEmitted = null
       history.clear()
@@ -299,12 +301,16 @@ class CardScannerView(context: Context, appContext: AppContext) : ExpoView(conte
       else top.score >= strongScore || (top.score >= minScore && agrees)
       if (confirmed) {
         val le = lastEmitted
-        if (le == null || !le.ids.contains(top.id)) {
-          val near = result.matches.filter { it.score >= top.score - 0.05f }.map { it.id }.toSet()
-          lastEmitted = Emitted(near + top.id)
+        val lc = lastCard
+        val sameAsLast = lc != null && lc.ids.contains(top.id) && now - lc.at < SAME_CARD_MS
+        val tooSoon = lc != null && now - lc.at < MIN_GAP_MS
+        if ((le == null || !le.ids.contains(top.id)) && !sameAsLast && !tooSoon) {
+          val near = result.matches.filter { it.score >= top.score - 0.05f }.map { it.id }.toSet() + top.id
+          lastEmitted = Emitted(near, now)
+          lastCard = lastEmitted
           emitCard(result)
-        } else {
-          lastEmitted = Emitted(le.ids + result.matches.filter { it.score >= top.score - 0.03f }.map { it.id })
+        } else if (le != null) {
+          lastEmitted = Emitted(le.ids + result.matches.filter { it.score >= top.score - 0.03f }.map { it.id }, le.at)
         }
         recognizedUntil = now + 900
       }
@@ -342,6 +348,9 @@ class CardScannerView(context: Context, appContext: AppContext) : ExpoView(conte
   }
 
   companion object {
+    private const val ABSENT_RESET_MS = 600L // carta fora da câmera por esse tempo = pode ler a próxima
+    private const val MIN_GAP_MS = 700L // intervalo mínimo entre duas cartas
+    private const val SAME_CARD_MS = 2000L // a mesma carta só conta de novo depois disso
     private const val TAG = "CardVision"
   }
 }

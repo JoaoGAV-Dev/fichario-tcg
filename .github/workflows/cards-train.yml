@@ -1,0 +1,75 @@
+# Treina a rede de reconhecimento nas próprias cartas (CPU do GitHub, de graça, ~3 h).
+# Só publica no banco do app (release cards-db) se ficar melhor que o atual.
+name: Treinar reconhecimento
+
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: Minutos de treino
+        default: '170'
+  push:
+    branches: [train]
+    paths: ['vision/**', '.github/workflows/cards-train.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: vision/requirements.txt
+      - run: pip install -r vision/requirements.txt
+      - uses: actions/cache@v4
+        with:
+          path: |
+            cache/img
+            ~/.keras/models
+          key: cards-img-${{ github.run_id }}
+          restore-keys: cards-img-
+      - name: Treinar
+        shell: bash
+        env:
+          TF_CPP_MIN_LOG_LEVEL: '2'
+        run: python vision/train.py --minutes ${{ inputs.minutes || '170' }} 2>&1 | tee train_log.txt
+      - name: Relatório
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view cards-db-report >/dev/null 2>&1 || gh release create cards-db-report --prerelease --title "Relatório do banco de cartas" --notes "Avaliação automática do reconhecimento."
+          [ -f out/report_real.jpg ] && cp out/report_real.jpg train_report_real.jpg
+          [ -f out/report.json ] && cp out/report.json train_report.json
+          for f in train_log.txt train_report_real.jpg train_report.json; do [ -f "$f" ] && gh release upload cards-db-report "$f" --clobber; done; true
+      - name: Publicar se for melhor
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -sL https://github.com/${{ github.repository }}/releases/download/cards-db/manifest.json -o old.json || true
+          python - <<'PY'
+          import json, sys
+          new = json.load(open('out/manifest.json'))['metrics']
+          try:
+              old = json.load(open('old.json'))['metrics']
+          except Exception:
+              old = {'syn_top1_name': 0, 'real_name_acc': 0, 'syn_recall_min': 0}
+          better = (new['real_name_acc'] >= old['real_name_acc']
+                    and new['syn_top1_name'] >= old['syn_top1_name'] - 0.003
+                    and new['syn_recall_min'] >= old['syn_recall_min'] - 0.02)
+          print('novo', {k: new[k] for k in ('syn_top1_name', 'real_name_acc', 'syn_recall_min')})
+          print('atual', {k: old.get(k) for k in ('syn_top1_name', 'real_name_acc', 'syn_recall_min')})
+          print('PUBLICAR' if better else 'MANTER O ATUAL')
+          open('decision.txt', 'w').write('yes' if better else 'no')
+          PY
+          if [ "$(cat decision.txt)" = "yes" ]; then
+            gh release upload cards-db-report out/weights.h5 --clobber || true
+            gh release upload cards-db out/model.tflite out/emb.f16 out/ids.txt out/cards.tsv --clobber
+            gh release upload cards-db out/manifest.json --clobber
+          fi

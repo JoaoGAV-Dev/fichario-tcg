@@ -6,7 +6,7 @@ import { Alert, FlatList, Pressable, StyleSheet, useWindowDimensions, View } fro
 import { Chip, Loading, Txt } from '@/components/ui';
 import { useTheme } from '@/hooks/use-theme';
 import { ownedBySet } from '@/lib/collection';
-import { getSet, type SetDetail } from '@/lib/tcgdex';
+import { getSet, type SetDetail, imgUrl } from '@/lib/tcgdex';
 
 type Filter = 'todas' | 'tenho' | 'faltam';
 
@@ -70,7 +70,7 @@ export default function SetScreen() {
               style={{ width: size, marginBottom: 8 }}>
               <View style={{ opacity: have || filter !== 'todas' ? 1 : 0.38 }}>
                 {item.image ? (
-                  <Image source={{ uri: `${item.image}/low.webp` }} style={{ width: size, height: size * 1.4, borderRadius: 6 }} contentFit="contain" transition={120} />
+                  <Image source={{ uri: imgUrl(item.image, 'low') }} style={{ width: size, height: size * 1.4, borderRadius: 6 }} contentFit="contain" transition={120} />
                 ) : (
                   <View style={[styles.noimg, { width: size, height: size * 1.4, backgroundColor: t.backgroundElement }]}>
                     <Txt variant="small" style={{ textAlign: 'center' }}>{item.name}</Txt>

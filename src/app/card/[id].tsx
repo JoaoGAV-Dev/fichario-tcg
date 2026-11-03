@@ -18,7 +18,8 @@ import {
 } from '@/lib/prices';
 import { REF_LABEL, useSettings } from '@/lib/settings';
 import { getFx, warmCard, type Fx } from '@/lib/sources/fast';
-import { getCard, type CardDetail } from '@/lib/tcgdex';
+import { getCardAny } from '@/lib/cardinfo';
+import { type CardDetail, imgUrl } from '@/lib/tcgdex';
 
 export default function CardScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -43,7 +44,7 @@ export default function CardScreen() {
   }, [id]);
 
   useEffect(() => {
-    getCard(id).catch(() => getCard(id, 'en')).then((c) => {
+    getCardAny(id).then((c) => {
       setCard(c);
       const v = c.variants;
       setVariant(v?.normal ? 'normal' : v?.holo ? 'holo' : v?.reverse ? 'reverse' : 'normal');
@@ -121,7 +122,7 @@ export default function CardScreen() {
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 60 }}>
         <View style={{ flexDirection: 'row', gap: 14 }}>
           {card.image ? (
-            <Image source={{ uri: `${card.image}/high.webp` }} style={styles.art} contentFit="contain" transition={150} />
+            <Image source={{ uri: imgUrl(card.image, 'high') }} style={styles.art} contentFit="contain" transition={150} />
           ) : <View style={[styles.art, { backgroundColor: t.backgroundElement }]} />}
           <View style={{ flex: 1, gap: 4 }}>
             <Txt variant="h2">{card.name}</Txt>

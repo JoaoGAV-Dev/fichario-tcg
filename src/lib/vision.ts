@@ -13,7 +13,7 @@ export interface VisionManifest {
   version: string;
   count: number;
   dim: number;
-  files: { model: string; emb: string; ids: string };
+  files: { model: string; emb: string; ids: string; meta?: string };
   thresholds?: { min: number; strong: number };
 }
 
@@ -42,6 +42,43 @@ export function onVisionStatus(fn: (s: VisionStatus) => void): () => void {
 
 const dir = () => new Directory(Paths.document, 'vision');
 const fileFor = (m: VisionManifest, key: keyof VisionManifest['files']) => new File(dir(), `${m.version}-${m.files[key]}`);
+const keysOf = (m: VisionManifest) => (['ids', 'meta', 'model', 'emb'] as const).filter((k) => !!m.files[k]);
+
+/** Dados de cada carta do banco (inclusive as que o TCGdex não tem). */
+export interface VisionCard {
+  id: string;
+  name: string;
+  set: string;
+  setName: string;
+  local: string;
+  official: number;
+  release: string; // AAAA-MM-DD
+  image: string; // base do TCGdex ou URL completa
+  src: string;
+  usd: number | null;
+}
+let meta: Map<string, VisionCard> | null = null;
+
+async function loadMeta(m: VisionManifest) {
+  if (!m.files.meta) return;
+  const f = fileFor(m, 'meta');
+  if (!f.exists) return;
+  const text = await f.text();
+  const map = new Map<string, VisionCard>();
+  const lines = text.split('\n');
+  for (let i = 1; i < lines.length; i++) {
+    const c = lines[i].split('\t');
+    if (c.length < 9) continue;
+    map.set(c[0], {
+      id: c[0], name: c[1], set: c[2], setName: c[3], local: c[4], official: Number(c[5]) || 0, release: c[6],
+      image: c[7], src: c[8], usd: c[9] ? Number(c[9]) || null : null,
+    });
+  }
+  meta = map;
+}
+
+/** Dados da carta pelo banco do reconhecimento (null se o banco ainda não carregou). */
+export const visionCard = (id: string): VisionCard | null => meta?.get(id) ?? null;
 
 async function fetchManifest(): Promise<VisionManifest | null> {
   const ctrl = new AbortController();
@@ -66,7 +103,7 @@ export function ensureVisionIndex(force = false): Promise<VisionStatus> {
     try {
       const localRaw = await getMeta('vision_manifest');
       let local = localRaw ? (JSON.parse(localRaw) as VisionManifest) : null;
-      const haveLocal = !!local && (['model', 'emb', 'ids'] as const).every((k) => fileFor(local!, k).exists);
+      const haveLocal = !!local && keysOf(local).every((k) => fileFor(local!, k).exists);
       if (!haveLocal) local = null;
 
       // Procura versão nova no máximo 1x por dia (ou sempre, se não houver nada salvo)
@@ -87,13 +124,14 @@ export function ensureVisionIndex(force = false): Promise<VisionStatus> {
 
       const info = indexInfo();
       if (info.ready && info.version === target.version) {
+        if (!meta) await loadMeta(target).catch(() => {});
         set({ state: 'ready', count: info.count, version: info.version, thresholds: target.thresholds ?? DEFAULT_T });
         return status;
       }
 
       if (target !== local) {
         dir().create({ idempotent: true, intermediates: true });
-        const keys = ['ids', 'model', 'emb'] as const;
+        const keys = keysOf(target);
         const done: Record<string, number> = {};
         const total: Record<string, number> = {};
         set({ state: 'downloading', progress: 0 });
@@ -120,6 +158,7 @@ export function ensureVisionIndex(force = false): Promise<VisionStatus> {
       set({ state: 'loading' });
       const n = await loadIndexAsync(
         fileFor(target, 'model').uri, fileFor(target, 'emb').uri, fileFor(target, 'ids').uri, target.dim, target.version);
+      await loadMeta(target).catch(() => {});
       await setMeta('vision_manifest', JSON.stringify(target));
       // apaga versões antigas
       try {

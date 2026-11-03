@@ -210,12 +210,13 @@ def main():
             break
     db.astype('<f2').tofile(os.path.join(B.OUT, 'emb.f16'))
     open(os.path.join(B.OUT, 'ids.txt'), 'w').write('\n'.join(ids))
+    B.write_meta(cards, os.path.join(B.OUT, 'cards.tsv'))
     model.save_weights(os.path.join(B.OUT, 'weights.h5'))
     version = time.strftime('%Y%m%d') + '-t' + os.environ.get('GITHUB_RUN_NUMBER', 'local')
     json.dump({'version': version, 'count': N, 'dim': DIM, 'w': W, 'h': H, 'backbone': args.backbone, 'method': 'trained',
                'epochs': epoch, 'tflite_cos_min': float(cos.min()),
                'thresholds': {'min': round(m['thr_min'], 3), 'strong': round(m['thr_strong'], 3)},
-               'metrics': m, 'files': {'model': 'model.tflite', 'emb': 'emb.f16', 'ids': 'ids.txt'}},
+               'metrics': m, 'files': {'model': 'model.tflite', 'emb': 'emb.f16', 'ids': 'ids.txt', 'meta': 'cards.tsv'}},
               open(os.path.join(B.OUT, 'manifest.json'), 'w'), indent=1)
     B.log('fim')
 

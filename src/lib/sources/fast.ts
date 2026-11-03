@@ -5,6 +5,7 @@
 import type { DbCard } from '../collection';
 import { emitDataChanged, getDb, getMeta, setMeta } from '../db';
 import { todayBR, upsertSnapshots } from '../prices';
+import { getCardAny } from '../cardinfo';
 import { getCard, getSeries } from '../tcgdex';
 import { mypSku, parseMypEditionPath, parseMypListing, parseMypSearch, parseTcgHistory, pickMypHit, slugify, type MypListing } from './parsers';
 
@@ -53,7 +54,7 @@ export async function getFx(): Promise<Fx | null> {
 
 /** Preço internacional da carta em R$ (Cardmarket ou TCGplayer, o que houver), sem esperar a MYP. */
 export async function intlPriceBRL(cardId: string): Promise<{ value: number; label: string } | null> {
-  const [card, fx] = await Promise.all([getCard(cardId, 'pt').catch(() => getCard(cardId, 'en')).catch(() => null), getFx()]);
+  const [card, fx] = await Promise.all([getCardAny(cardId).catch(() => null), getFx()]);
   if (!card?.pricing || !fx) return null;
   const tp = card.pricing.tcgplayer as Record<string, { marketPrice?: number }> | undefined;
   const tpv = tp ? ['normal', 'holofoil', 'reverseHolofoil'].map((k) => tp[k]?.marketPrice).find((v) => v && v > 0) : undefined;

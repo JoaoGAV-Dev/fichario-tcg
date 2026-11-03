@@ -30,6 +30,7 @@ import { ensureCatalog, setsWithAbbr } from '@/lib/catalog';
 import { getCardSnapshots, refPrice, refreshCards, todayBR } from '@/lib/prices';
 import { cachedMypPrice, intlPriceBRL, warmCard } from '@/lib/sources/fast';
 import { useSettings } from '@/lib/settings';
+import { imgUrl } from '@/lib/tcgdex';
 
 type Mode = 'auto' | 'consulta';
 type Phase = 'scanning' | 'choose';
@@ -351,7 +352,7 @@ export default function OcrScanScreen() {
                 <Pressable key={c.card.id} onPress={() => choose(c)}>
                   <View style={[styles.row, { borderColor: t.border }]}>
                     {c.card.image ? (
-                      <Image source={{ uri: `${c.card.image}/low.webp` }} style={styles.thumb} contentFit="contain" />
+                      <Image source={{ uri: imgUrl(c.card.image, 'low') }} style={styles.thumb} contentFit="contain" />
                     ) : <View style={[styles.thumb, { backgroundColor: t.backgroundElement }]} />}
                     <View style={{ flex: 1 }}>
                       <Txt style={{ fontWeight: '700' }}>{c.card.name}</Txt>
@@ -375,7 +376,7 @@ export default function OcrScanScreen() {
                 <View key={r.key} style={[styles.row, { borderColor: t.border }]}>
                   <Pressable onPress={() => router.push({ pathname: '/card/[id]', params: { id: r.cardId } })} style={styles.rowLink}>
                     {r.image ? (
-                      <Image source={{ uri: `${r.image}/low.webp` }} style={styles.thumb} contentFit="contain" />
+                      <Image source={{ uri: imgUrl(r.image, 'low') }} style={styles.thumb} contentFit="contain" />
                     ) : <View style={[styles.thumb, { backgroundColor: t.backgroundElement }]} />}
                     <View style={{ flex: 1, gap: 2 }}>
                       <Txt numberOfLines={1} style={{ fontWeight: '700' }}>{r.name}</Txt>

@@ -16,6 +16,7 @@ import { LigaStatus, useLiga } from '@/lib/liga';
 import { buildDashboard, holdingsOf, movers, pokedexGroups, valueSeries } from '@/lib/portfolio';
 import { getCollectionSnapshots, getHistorySince, refreshCards, todayBR, type Snapshot } from '@/lib/prices';
 import { useSettings } from '@/lib/settings';
+import { imgUrl } from '@/lib/tcgdex';
 
 type Segment = 'colecoes' | 'pokedex';
 const RANGES = [
@@ -123,7 +124,7 @@ export default function Home() {
             {dex.map((g) => (
               <Pressable key={g.dexId} onPress={() => router.push({ pathname: '/pokemon/[dex]', params: { dex: String(g.dexId), name: g.name } })}>
                 <View style={[styles.dexCard, { width: col, backgroundColor: t.card, borderColor: t.border }]}>
-                  {g.image ? <Image source={{ uri: `${g.image}/low.webp` }} style={styles.dexImg} contentFit="cover" contentPosition="top" /> : null}
+                  {g.image ? <Image source={{ uri: imgUrl(g.image, 'low') }} style={styles.dexImg} contentFit="cover" contentPosition="top" /> : null}
                   <Txt variant="small">#{String(g.dexId).padStart(4, '0')}</Txt>
                   <Txt style={{ fontWeight: '700' }} numberOfLines={1}>{g.name}</Txt>
                   <Txt variant="small">{g.cards} {g.cards === 1 ? 'carta' : 'cartas'} · {brl(g.value)}</Txt>
@@ -189,7 +190,7 @@ export default function Home() {
                   <Pressable key={s.setId} onPress={() => router.push({ pathname: '/set/[id]', params: { id: s.setId, name: s.name } })}>
                     <View style={[styles.setCard, { width: col, backgroundColor: t.card, borderColor: t.border }]}>
                       {s.cover ? (
-                        <Image source={{ uri: `${s.cover}/low.webp` }} style={styles.cover} contentFit="cover" contentPosition="top" />
+                        <Image source={{ uri: imgUrl(s.cover, 'low') }} style={styles.cover} contentFit="cover" contentPosition="top" />
                       ) : <View style={[styles.cover, { backgroundColor: t.backgroundElement }]} />}
                       <Txt style={{ fontWeight: '700' }} numberOfLines={2}>{s.name}</Txt>
                       <View style={styles.rowBetween}>
@@ -304,7 +305,7 @@ function CardRow({
   return (
     <Pressable onPress={onPress}>
       <View style={[styles.cardRow, { borderTopColor: t.border }]}>
-        {image ? <Image source={{ uri: `${image}/low.webp` }} style={styles.thumb} contentFit="contain" /> : <View style={[styles.thumb, { backgroundColor: t.backgroundElement }]} />}
+        {image ? <Image source={{ uri: imgUrl(image, 'low') }} style={styles.thumb} contentFit="contain" /> : <View style={[styles.thumb, { backgroundColor: t.backgroundElement }]} />}
         <View style={{ flex: 1, gap: 2 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Txt numberOfLines={1} style={{ fontWeight: '700', flexShrink: 1 }}>{title}</Txt>

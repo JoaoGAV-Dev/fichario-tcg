@@ -59,6 +59,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release view cards-db >/dev/null 2>&1 || gh release create cards-db --prerelease --title "Banco de cartas (reconhecimento)" --notes "Arquivos usados pelo app para reconhecer as cartas pela imagem. Atualizado automaticamente."
-          gh release upload cards-db out/model.tflite out/emb.f16 out/ids.txt --clobber
+          # semana a semana: se o banco atual veio do modelo treinado (melhor), não troca pelo comum
+          if [ "${{ github.event_name }}" = "schedule" ] && curl -sL https://github.com/${{ github.repository }}/releases/download/cards-db/manifest.json | grep -q '"method": "trained"'; then
+            echo "Banco atual é do modelo treinado; mantendo."; exit 0
+          fi
+          gh release upload cards-db out/model.tflite out/emb.f16 out/ids.txt out/cards.tsv --clobber
           # o manifesto por último: o app só vê a versão nova quando todos os arquivos já estão lá
           gh release upload cards-db out/manifest.json --clobber

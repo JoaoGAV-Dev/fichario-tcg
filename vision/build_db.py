@@ -48,34 +48,159 @@ def norm_name(s):
 
 # ---------------------------------------------------------------- cartas e imagens
 
+BASIC_PT = {'Grass': 'Energia de Planta', 'Fire': 'Energia de Fogo', 'Water': 'Energia de Água',
+            'Lightning': 'Energia Elétrica', 'Psychic': 'Energia Psíquica', 'Fighting': 'Energia de Luta',
+            'Darkness': 'Energia de Escuridão', 'Metal': 'Energia de Metal', 'Fairy': 'Energia de Fada'}
+# Coleções que o TCGdex não tem (ou não tem imagem) e que vêm do pokemontcg.io
+PTCG_EXTRA_SETS = {'sve': 'Energias Escarlate e Violeta'}
+
+
+def _ptcg_set_id(tid):
+    t = tid.lower().replace('.5', 'pt5')
+    return re.sub(r'(?<=[a-z])0+(?=\d)', '', t)
+
+
+def _get_json(ses, url, **kw):
+    for _ in range(3):
+        try:
+            r = ses.get(url, timeout=120, **kw)
+            if r.status_code == 200:
+                return r.json()
+        except Exception:
+            pass
+        time.sleep(2)
+    return None
+
+
 def fetch_cards():
     """Cartas em PT (imagem PT; se não houver, a em inglês) + cartas que só existem no catálogo em inglês
-    (promos, energias, coleções ainda sem tradução no TCGdex) — a arte é a mesma da carta brasileira."""
+    (promos, energias, coleções ainda sem tradução) + coleções que faltam no TCGdex (pokemontcg.io).
+    Cada carta leva os dados para o app mostrar (nome, coleção, data) mesmo sem o TCGdex."""
     ses = requests.Session()
     pt = ses.get('https://api.tcgdex.net/v2/pt/cards', timeout=180).json()
     en = ses.get('https://api.tcgdex.net/v2/en/cards', timeout=180).json()
     en_img = {c['id']: c.get('image') for c in en if c.get('image')}
+    # coleções: nome PT (ou EN), data de lançamento e total oficial
+    sets_pt = {s['id']: s for s in (_get_json(ses, 'https://api.tcgdex.net/v2/pt/sets') or [])}
+    sets_en = {s['id']: s for s in (_get_json(ses, 'https://api.tcgdex.net/v2/en/sets') or [])}
+    detail = {}
+
+    def get_detail(sid):
+        d = _get_json(ses, f'https://api.tcgdex.net/v2/en/sets/{sid}')
+        return sid, d or {}
+    with cf.ThreadPoolExecutor(16) as ex:
+        for sid, d in ex.map(get_detail, list(sets_en)):
+            detail[sid] = d
+
+    def set_info(sid):
+        d = detail.get(sid, {})
+        name = (sets_pt.get(sid) or sets_en.get(sid) or d or {}).get('name', sid)
+        cc = (d.get('cardCount') or (sets_en.get(sid) or {}).get('cardCount') or {})
+        return name, (d.get('releaseDate') or '')[:10], cc.get('official') or 0
+
+    def set_of(cid):
+        return cid.rsplit('-', 1)[0]
+
     cards = []
     seen = set()
+    no_img = []
+
+    def add(cid, name, local, img, src, extra=None):
+        sid = set_of(cid)
+        sname, rel, off = set_info(sid)
+        e = {'id': cid, 'name': name, 'local': local, 'set': sid, 'set_name': sname, 'release': rel,
+             'official': off, 'img': img, 'src': src, 'usd': ''}
+        if extra:
+            e.update(extra)
+        cards.append(e)
+        seen.add(cid)
+
     for c in pt:
         img = c.get('image')
         src = 'pt'
         if not img:
             img = en_img.get(c['id'])
             src = 'en'
-        if not img or '/tcgp/' in img:
+        if img and '/tcgp/' in img:
             continue
-        seen.add(c['id'])
-        cards.append({'id': c['id'], 'name': c.get('name', ''), 'img': img + '/low.webp', 'src': src})
+        if not img:
+            no_img.append(c)
+            continue
+        add(c['id'], c.get('name', ''), c.get('localId', ''), img + '/low.webp', src)
+    pt_names = {c['id']: c.get('name', '') for c in pt}
     for c in en:
         img = c.get('image')
-        if c['id'] in seen or not img or '/tcgp/' in img:
+        if c['id'] in seen or (img and '/tcgp/' in img):
             continue
-        seen.add(c['id'])
-        cards.append({'id': c['id'], 'name': c.get('name', ''), 'img': img + '/low.webp', 'src': 'en-only'})
+        if not img:
+            if c['id'] not in pt_names:
+                no_img.append(c)
+            continue
+        add(c['id'], c.get('name', ''), c.get('localId', ''), img + '/low.webp', 'en-only')
+
+    # imagens que faltam no TCGdex: tenta o pokemontcg.io (mesma coleção/número)
+    ptsets = _get_json(ses, 'https://api.pokemontcg.io/v2/sets', params={'pageSize': 250})
+    ptsets = (ptsets or {}).get('data', [])
+    ptset_ids = {s['id'] for s in ptsets}
+    by_name = {s['name'].lower(): s['id'] for s in ptsets}
+    recovered = 0
+    for c in no_img:
+        sid = set_of(c['id'])
+        if '/tcgp/' in str(c.get('image')) or sid.startswith(('A', 'P-A', 'B')) and sid[:1].isupper():
+            continue
+        ps = _ptcg_set_id(sid)
+        if ps not in ptset_ids:
+            ps = by_name.get(str((sets_en.get(sid) or {}).get('name', '')).lower())
+        if not ps:
+            continue
+        num = str(c.get('localId', '')).lstrip('0') or '0'
+        name = pt_names.get(c['id']) or c.get('name', '')
+        add(c['id'], name, c.get('localId', ''), f'https://images.pokemontcg.io/{ps}/{num}.png', 'ptcg-img')
+        recovered += 1
+
+    # coleções inteiras que não existem no TCGdex
+    extra = 0
+    for ps, sname in PTCG_EXTRA_SETS.items():
+        data = _get_json(ses, 'https://api.pokemontcg.io/v2/cards', params={'q': f'set.id:{ps}', 'pageSize': 250})
+        for c in (data or {}).get('data', []):
+            try:
+                n = int(re.sub(r'\D', '', c['number']) or 0)
+            except ValueError:
+                continue
+            cid = f'{ps}-{n:03d}'
+            if cid in seen:
+                continue
+            nm = c.get('name', '')
+            m = re.match(r'Basic (\w+) Energy', nm)
+            name = BASIC_PT.get(m.group(1), nm) if m else nm
+            prices = (c.get('tcgplayer') or {}).get('prices') or {}
+            usd = next((v.get('market') for v in prices.values() if v.get('market')), '')
+            st = c.get('set') or {}
+            img = (c.get('images') or {}).get('small')
+            if not img:
+                continue
+            cards.append({'id': cid, 'name': name, 'local': f'{n:03d}', 'set': ps, 'set_name': sname,
+                          'release': (st.get('releaseDate') or '').replace('/', '-'),
+                          'official': st.get('printedTotal') or 0, 'img': img, 'src': 'ptcg', 'usd': usd or ''})
+            seen.add(cid)
+            extra += 1
     log(f'{len(pt)} cartas PT e {len(en)} EN na lista; {len(cards)} no banco '
-        f'({sum(c["src"] == "en" for c in cards)} PT com imagem EN, {sum(c["src"] == "en-only" for c in cards)} só em inglês)')
+        f'({sum(c["src"] == "en" for c in cards)} PT com imagem EN, {sum(c["src"] == "en-only" for c in cards)} só em inglês, '
+        f'{recovered} sem imagem no TCGdex tentadas no pokemontcg.io, {extra} de coleções que faltam no TCGdex)')
     return cards
+
+
+def write_meta(cards, path):
+    """Dados das cartas do banco para o app (nome, coleção, número, data, imagem), em TSV."""
+    def clean(v):
+        return str(v if v is not None else '').replace('\t', ' ').replace('\n', ' ')
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write('id\tname\tset\tset_name\tlocal\tofficial\trelease\timage\tsrc\tusd\n')
+        for c in cards:
+            img = c['img']
+            base = img[:-len('/low.webp')] if img.endswith('/low.webp') else img
+            f.write('\t'.join(clean(x) for x in (c['id'], c['name'], c['set'], c['set_name'], c['local'],
+                                                 c['official'], c['release'], base, c['src'], c['usd'])) + '\n')
 
 
 def cache_path(cid):
@@ -541,11 +666,12 @@ def main():
     db.astype('<f2').tofile(os.path.join(OUT, 'emb.f16'))
     with open(os.path.join(OUT, 'ids.txt'), 'w') as f:
         f.write('\n'.join(ids))
+    write_meta(cards, os.path.join(OUT, 'cards.tsv'))
     version = time.strftime('%Y%m%d') + '-' + os.environ.get('GITHUB_RUN_NUMBER', 'local')
     manifest = {'version': version, 'count': N, 'dim': DIM, 'w': W, 'h': H, 'backbone': b, 'mode': mode,
                 'method': method, 'tflite_cos_min': float(cos.min()),
                 'thresholds': {'min': round(bm['thr_min'], 3), 'strong': round(bm['thr_strong'], 3)},
-                'metrics': bm, 'files': {'model': 'model.tflite', 'emb': 'emb.f16', 'ids': 'ids.txt'}}
+                'metrics': bm, 'files': {'model': 'model.tflite', 'emb': 'emb.f16', 'ids': 'ids.txt', 'meta': 'cards.tsv'}}
     json.dump(manifest, open(os.path.join(OUT, 'manifest.json'), 'w'), indent=1)
     log('fim')
 

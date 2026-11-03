@@ -142,3 +142,9 @@ export async function searchCards(name: string, lang: Lang = CATALOG_LANG): Prom
 export function cardsByDex(dexId: number, lang: Lang = CATALOG_LANG): Promise<CardBrief[]> {
   return cached(`dex:${lang}:${dexId}`, 3 * DAY, () => get<CardBrief[]>(`/${lang}/cards?dexId=eq:${dexId}`));
 }
+
+/** URL da imagem: base do TCGdex (+ /low.webp) ou URL completa (cartas que vêm de outra fonte). */
+export function imgUrl(base: string, quality: 'low' | 'high' = 'low'): string {
+  if (/\.(png|jpe?g|webp)$/i.test(base)) return quality === 'high' ? base.replace(/\.png$/i, '_hires.png') : base;
+  return `${base}/${quality}.webp`;
+}

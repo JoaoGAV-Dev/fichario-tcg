@@ -6,6 +6,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, Chip, Panel, Txt } from '@/components/ui';
 import { useTheme } from '@/hooks/use-theme';
 import { exportBackup, importBackup } from '@/lib/backup';
+import { exportCollection } from '@/lib/export';
+import { PREF_LABEL, VARIANT_PREFS, setScanPrefs, useScanPrefs } from '@/lib/scanprefs';
 import { getMeta } from '@/lib/db';
 import { dateBR } from '@/lib/format';
 import { isOcrAvailable } from '@/lib/ocr';
@@ -17,6 +19,19 @@ export default function Settings() {
   const { refMode, setRefMode } = useSettings();
   const [since, setSince] = useState<string | null>(null);
   const [lastAuto, setLastAuto] = useState<string | null>(null);
+  const [exporting, setExporting] = useState<'xlsx' | 'csv' | null>(null);
+  const scan = useScanPrefs();
+
+  async function doExport(fmt: 'xlsx' | 'csv') {
+    setExporting(fmt);
+    try {
+      await exportCollection(fmt, refMode);
+    } catch (e) {
+      Alert.alert('Exportar coleção', String((e as Error)?.message ?? e));
+    } finally {
+      setExporting(null);
+    }
+  }
 
   useFocusEffect(useCallback(() => {
     getHistorySince().then(setSince).catch(() => {});
@@ -27,6 +42,31 @@ export default function Settings() {
     <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: t.background }}>
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 120 }}>
         <Txt variant="title">Ajustes</Txt>
+
+        <Panel style={{ gap: 10 }}>
+          <Txt variant="h2">Exportar coleção</Txt>
+          <Txt variant="small">
+            Planilha com todas as suas cartas: coleção, número, versão, estado, quantidade e preço de hoje.
+            Abre no Excel, Google Planilhas ou WPS.
+          </Txt>
+          <Button title="Exportar para Excel (.xlsx)" icon="microsoft-excel" loading={exporting === 'xlsx'} onPress={() => doExport('xlsx')} />
+          <Button title="Exportar CSV" kind="secondary" icon="file-delimited-outline" loading={exporting === 'csv'} onPress={() => doExport('csv')} />
+        </Panel>
+
+        <Panel style={{ gap: 10 }}>
+          <Txt variant="h2">Scanner</Txt>
+          <Txt variant="small">Ao reconhecer uma carta:</Txt>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            <Chip label="Adicionar à coleção" active={scan.mode === 'auto'} onPress={() => setScanPrefs({ mode: 'auto' })} />
+            <Chip label="Só consultar o preço" active={scan.mode === 'consulta'} onPress={() => setScanPrefs({ mode: 'consulta' })} />
+          </View>
+          <Txt variant="small">Versão ao adicionar (Automática = a mais comum da carta):</Txt>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {VARIANT_PREFS.map((v) => (
+              <Chip key={v} label={PREF_LABEL[v]} active={scan.variant === v} onPress={() => setScanPrefs({ variant: v })} />
+            ))}
+          </View>
+        </Panel>
 
         <Panel style={{ gap: 10 }}>
           <Txt variant="h2">Preço de referência</Txt>
@@ -80,7 +120,7 @@ export default function Settings() {
           <Txt variant="small">• MYP Cards: menor preço, preço médio e último vendido.</Txt>
           <Txt variant="small">• Liga Pokémon: menor, médio e maior, lidos num navegador dentro do app (a Liga bloqueia robôs).</Txt>
           <Txt variant="small">• Cardmarket e TCGplayer: referência internacional que vem com a TCGdex.</Txt>
-          <Txt variant="small">• Scanner: {isOcrAvailable() ? 'Google ML Kit no aparelho (offline, grátis).' : 'indisponível nesta versão.'}</Txt>
+          <Txt variant="small">• Scanner: reconhecimento pela imagem no aparelho (offline, grátis){isOcrAvailable() ? '; leitura do rodapé como reserva.' : '.'}</Txt>
         </Panel>
       </ScrollView>
     </SafeAreaView>
