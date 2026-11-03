@@ -270,12 +270,26 @@ def load_card(cid):
 
 # ---------------------------------------------------------------- distorções (foto simulada)
 
-def augment(src, rng):
+def augment(src, rng, neighbor=None):
     h, w = src.shape[:2]
     m = int(0.18 * w)
     ch, cw = h + 2 * m, w + 2 * m
     kind = rng.random()
-    if kind < 0.4:
+    binder = neighbor is not None and kind >= 0.65
+    if binder:
+        # página de fichário: bolso escuro e pedaços das cartas vizinhas em volta
+        bg = rng.uniform(15, 45) + rng.normal(0, 8, (ch, cw, 3))
+        nb = cv2.resize(neighbor, (w, h))
+        gap = int(rng.uniform(0.05, 0.12) * w)
+        canvas0 = np.clip(bg, 0, 255).astype(np.uint8)
+        for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            x0, y0 = m + dx * (w + gap), m + dy * (h + gap)
+            xa, ya = max(0, x0), max(0, y0)
+            xb, yb = min(cw, x0 + w), min(ch, y0 + h)
+            if xb > xa and yb > ya:
+                canvas0[ya:yb, xa:xb] = nb[ya - y0:yb - y0, xa - x0:xb - x0]
+        bg = canvas0.astype(np.float32)
+    elif kind < 0.4:
         col = rng.integers(0, 255, 3)
         bg = np.full((ch, cw, 3), col, np.float32) + rng.normal(0, 12, (ch, cw, 3))
     elif kind < 0.7:  # madeira/mesa: faixas
@@ -291,7 +305,25 @@ def augment(src, rng):
     # erro de detecção da borda: cantos fora do lugar em até ~5%
     sig = rng.uniform(0.0, 0.025) * w
     noisy = pts + np.clip(rng.normal(0, sig, (4, 2)), -0.06 * w, 0.06 * w).astype(np.float32)
+    if rng.random() < (0.45 if binder else 0.2):
+        # recorte maior que a carta (moldura central / bolso do fichário): sobra borda e vizinhas
+        e = rng.uniform(0.03, 0.14) * w
+        noisy = noisy + np.array([[-e, -e], [e, -e], [e, e], [-e, e]], np.float32) * np.array([1, 88 / 63], np.float32)
     out = warp(canvas, noisy).astype(np.float32)
+    # sleeve / plástico do fichário: véu claro (menos contraste) e faixas de brilho
+    if binder or rng.random() < 0.35:
+        haze = rng.uniform(0.05, 0.3)
+        out = out * (1 - haze) + haze * rng.uniform(150, 230)
+        for _ in range(int(rng.integers(1, 4))):
+            band = np.zeros((H, W), np.float32)
+            ang = rng.uniform(-60, 60)
+            cx, cy = rng.uniform(0, W), rng.uniform(0, H)
+            L = 2 * max(H, W)
+            dx, dy = np.cos(np.radians(ang)) * L, np.sin(np.radians(ang)) * L
+            cv2.line(band, (int(cx - dx), int(cy - dy)), (int(cx + dx), int(cy + dy)), 1.0, int(rng.uniform(4, 30)))
+            band = cv2.GaussianBlur(band, (0, 0), rng.uniform(3, 12))
+            a = rng.uniform(0.2, 0.7)
+            out = out * (1 - a * band[..., None]) + 255 * a * band[..., None]
     # luz e cor
     out = out * rng.uniform(0.6, 1.25) + rng.uniform(-35, 35)
     out *= (1 + rng.normal(0, 0.07, 3))[None, None, :]
@@ -456,14 +488,21 @@ LABELS = {
 }
 
 
+def label_ok(label, name):
+    if label in LABELS:
+        return LABELS[label](name)
+    words = label.split('-')
+    return all(w in name.split() for w in words)
+
+
 def real_queries():
     out = []
     for f in sorted(glob.glob(os.path.join(ROOT, 'real', '*.jpg'))):
         label = os.path.basename(f).split('__')[0]
         img = cv2.cvtColor(cv2.imread(f), cv2.COLOR_BGR2RGB)
         qs, g = find_quads(img)
-        cands = [warp(img, q) for q in qs[:2]] + [warp(img, g)]
-        kinds = ['borda'] * len(qs[:2]) + ['centro']
+        cands = [warp(img, q) for q in qs[:4]] + [warp(img, g)]
+        kinds = ['borda'] * len(qs[:4]) + ['centro']
         out.append({'file': os.path.basename(f), 'label': label, 'img': img, 'cands': cands, 'kinds': kinds})
     return out
 
@@ -487,8 +526,8 @@ def evaluate(db, names, syn_q, syn_truth, real, real_q, neg_q):
         other = next((row[j] for j in o[1:] if names[j] != names[o[0]]), row[o[1]])
         res.append({'file': r['file'], 'label': r['label'], 'cand': best_c, 'kind': r['kinds'][best_c],
                     'top': [int(j) for j in o], 'score': float(row[o[0]]), 'margin': float(row[o[0]] - other)})
-    pos = [x for x in res if x['label'] in LABELS]
-    real_ok = float(np.mean([LABELS[x['label']](names[x['top'][0]]) for x in pos])) if pos else 0.0
+    pos = [x for x in res if x['label'] != 'none']
+    real_ok = float(np.mean([label_ok(x['label'], names[x['top'][0]]) for x in pos])) if pos else 0.0
     return {
         'syn_top1_id': float(np.mean(t1 == syn_truth)), 'syn_top1_name': float(correct.mean()),
         'syn_top5_id': float(np.mean([syn_truth[i] in top[i] for i in range(len(t1))])),
@@ -552,9 +591,14 @@ def contact(rows, path):
     cv2.imwrite(path, cv2.cvtColor(np.vstack(grid), cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 80])
 
 
+_ALL_IDS = []
+
+
 def _aug_job(args):
     cid, seed = args
-    return augment(load_native(cid), np.random.default_rng(seed))
+    rng = np.random.default_rng(seed)
+    nb = load_native(_ALL_IDS[int(rng.integers(len(_ALL_IDS)))]) if _ALL_IDS and rng.random() < 0.4 else None
+    return augment(load_native(cid), rng, nb)
 
 
 # ---------------------------------------------------------------- principal
@@ -580,6 +624,7 @@ def main():
         log(f'banco tem {len(hits)} cartas para "{lab}": {hits[:30]}')
 
     import multiprocessing as mp
+    _ALL_IDS[:] = ids  # vizinhas no fichário simulado (antes de criar os processos)
     pool = mp.Pool(max(1, os.cpu_count() or 2))
     rng = np.random.default_rng(7)
     syn_idx = rng.choice(N, size=min(args.nsyn, N), replace=False)
@@ -651,7 +696,7 @@ def main():
     rows = []
     for r, x in zip(real, res):
         t = x['top'][0]
-        ok = x['label'] in LABELS and LABELS[x['label']](names[t])
+        ok = x['label'] != 'none' and label_ok(x['label'], names[t])
         rows.append((r['cands'][x['cand']], load_card(ids[t]),
                      f"{r['file'][:20]} {x['kind']} {x['score']:.3f} m{x['margin']:.3f} -> {ids[t]} {names[t]}", ok))
     contact(rows, os.path.join(OUT, 'report_real.jpg'))

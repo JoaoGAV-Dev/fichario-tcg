@@ -1,13 +1,14 @@
 // Banco do reconhecimento por imagem: o GitHub gera (workflow "Banco de cartas") e publica na
 // release "cards-db"; aqui o app baixa uma vez (~10–20 MB), guarda e carrega no módulo nativo.
 // Depois disso o reconhecimento funciona sem internet.
+import Constants from 'expo-constants';
 import { Directory, File, Paths } from 'expo-file-system';
 
 import { indexInfo, isVisionAvailable, loadIndexAsync } from '../../modules/card-vision';
 import { getMeta, setMeta } from './db';
 
 const BASE = 'https://github.com/JoaoGAV-Dev/fichario-tcg/releases/download/cards-db/';
-const DAY = 86_400_000;
+const CHECK_EVERY = 3 * 3_600_000; // procura banco novo a cada 3 h (o app avisa sozinho)
 
 export interface VisionManifest {
   version: string;
@@ -106,14 +107,17 @@ export function ensureVisionIndex(force = false): Promise<VisionStatus> {
       const haveLocal = !!local && keysOf(local).every((k) => fileFor(local!, k).exists);
       if (!haveLocal) local = null;
 
-      // Procura versão nova no máximo 1x por dia (ou sempre, se não houver nada salvo)
+      // Procura banco novo a cada 3 h, ao atualizar o app ou se não houver nada salvo
       const checkedAt = Number((await getMeta('vision_checked')) ?? 0);
+      const appVer = Constants.expoConfig?.version ?? '';
+      const appChanged = (await getMeta('vision_checked_app')) !== appVer;
       let target = local;
-      if (force || !local || Date.now() - checkedAt > DAY) {
+      if (force || !local || appChanged || Date.now() - checkedAt > CHECK_EVERY) {
         set({ state: 'checking' });
         const remote = await fetchManifest();
         if (remote) {
           await setMeta('vision_checked', String(Date.now()));
+          await setMeta('vision_checked_app', appVer);
           if (!local || remote.version !== local.version) target = remote;
         } else if (!local) {
           set({ state: 'error', error: 'Não consegui baixar o banco de cartas. Confira a internet (só precisa na 1ª vez).' });

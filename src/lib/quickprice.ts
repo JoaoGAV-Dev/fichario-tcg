@@ -1,9 +1,21 @@
-// Preço quase instantâneo para o scanner:
-// 1) preço brasileiro já salvo hoje, 2) menor preço da MYP em cache da coleção, 3) internacional convertido (≈R$).
-// Em segundo plano baixa a coleção inteira da MYP (deixa as próximas cartas instantâneas) e o histórico.
+// Preço para o scanner, em etapas:
+// 1) na hora: preço salvo hoje, ou a menor oferta da MYP em cache (prévia), ou o internacional convertido;
+// 2) ~1 s depois: a página da carta na MYP (preço MÉDIO das ofertas e último vendido) — é o que fica;
+// 3) em segundo plano: coleção inteira da MYP (deixa as próximas instantâneas) e o histórico.
 import { ensureCard, type Variant } from './collection';
-import { getCardSnapshots, refPrice, refreshCards, todayBR, type RefMode } from './prices';
+import { getCardSnapshots, refPrice, refreshCards, todayBR, type RefMode, type Snapshot } from './prices';
 import { cachedMypPrice, intlPriceBRL, warmCard } from './sources/fast';
+
+/** Rótulo do preço de referência conforme as fontes que existem hoje. */
+function labelFor(snaps: Snapshot[], today: string): string {
+  const day = snaps.filter((s) => s.captured_on === today);
+  const liga = day.some((s) => s.source === 'liga' && s.price_avg !== null);
+  const mypAvg = day.some((s) => s.source === 'myp' && s.price_avg !== null);
+  if (liga && mypAvg) return 'média Liga + MYP';
+  if (liga) return 'médio na Liga';
+  if (mypAvg) return 'médio na MYP';
+  return 'menor oferta na MYP';
+}
 
 export async function quickPrice(
   cardId: string,
@@ -16,27 +28,38 @@ export async function quickPrice(
     if (p !== null) shown = true;
     put(p, l);
   };
+  const today = todayBR();
+  const fromSnaps = async () => {
+    const snaps = await getCardSnapshots(cardId, 3);
+    const p = refPrice(snaps, today, refMode);
+    return p === null ? null : { p, label: labelFor(snaps, today) };
+  };
   try {
     const card = await ensureCard(cardId);
-    const today = todayBR();
-    const local = refPrice(await getCardSnapshots(cardId, 3), today, refMode);
-    if (local !== null) show(local, 'Liga/MYP hoje');
+    // 1) prévia instantânea
+    const local = await fromSnaps();
+    if (local) show(local.p, local.label);
     else {
       const cached = await cachedMypPrice(card);
-      if (cached !== null) show(cached, 'MYP · menor preço');
+      if (cached !== null) show(cached, 'menor oferta na MYP · conferindo…');
       else {
         const intl = await intlPriceBRL(cardId);
-        if (intl) show(intl.value, `≈ ${intl.label}`);
+        if (intl) show(intl.value, `≈ ${intl.label} · conferindo…`);
       }
     }
-    await warmCard(card, variant);
-    const after = refPrice(await getCardSnapshots(cardId, 3), today, refMode) ?? (await cachedMypPrice(card));
-    if (after !== null) show(after, 'MYP · menor preço');
-    else if (!shown) put(null);
-    refreshCards([card], undefined, 0).then(async () => {
-      const full = refPrice(await getCardSnapshots(cardId, 3), todayBR(), refMode);
-      if (full !== null) show(full, 'Liga/MYP · médio');
-    }).catch(() => {});
+    // 2) página da carta na MYP (médio) — só se ainda não temos o médio de hoje
+    if (!local || local.label === 'menor oferta na MYP') {
+      await refreshCards([card], undefined, 0).catch(() => {});
+      const full = await fromSnaps();
+      if (full) show(full.p, full.label);
+    }
+    if (!shown) {
+      const intl = await intlPriceBRL(cardId);
+      if (intl) show(intl.value, `≈ ${intl.label} (sem oferta no Brasil)`);
+      else put(null);
+    }
+    // 3) segundo plano
+    warmCard(card, variant).catch(() => {});
   } catch {
     if (!shown) put(null);
   }

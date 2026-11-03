@@ -180,6 +180,7 @@ class CardScannerView(context: Context, appContext: AppContext) : ExpoView(conte
         bound = true
         applyZoom()
         camera?.cameraControl?.enableTorch(torch)
+        lowerExposure()
         onCameraReady(mapOf("index" to CardIndex.ready))
       } catch (e: Throwable) {
         bound = false
@@ -204,6 +205,17 @@ class CardScannerView(context: Context, appContext: AppContext) : ExpoView(conte
   fun release() {
     unbind()
     executor.shutdown()
+  }
+
+  /** Um pouco mais escuro (−0,5 EV): o reflexo do sleeve/fichário estoura menos e a arte aparece. */
+  private fun lowerExposure() {
+    val c = camera ?: return
+    val es = c.cameraInfo.exposureState
+    if (!es.isExposureCompensationSupported) return
+    val step = es.exposureCompensationStep.toFloat()
+    if (step <= 0f) return
+    val idx = Math.round(-0.5f / step).coerceIn(es.exposureCompensationRange.lower, es.exposureCompensationRange.upper)
+    c.cameraControl.setExposureCompensationIndex(idx)
   }
 
   private fun applyZoom() {
@@ -263,12 +275,13 @@ class CardScannerView(context: Context, appContext: AppContext) : ExpoView(conte
       val frame = toMat(image)
       val fw = frame.cols()
       val fh = frame.rows()
-      val quads = CardDetector.candidates(frame, 3)
+      val quads = CardDetector.candidates(frame, 5)
       val now = SystemClock.elapsedRealtime()
       var result: FrameMatch? = null
       val interval = if (lastEmitted != null) 300L else 0L
       if (!paused && CardIndex.ready && now - lastRecognize >= interval) {
-        result = CardRecognizer.recognize(frame, quads, quads.isEmpty(), 2, minScore)
+        // fichário/sleeve: a borda achada muitas vezes é o bolso ou a arte; testa várias + o recorte central
+        result = CardRecognizer.recognize(frame, quads, true, 4, minScore)
         lastRecognize = now
       }
       frame.release()

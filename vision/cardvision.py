@@ -117,5 +117,5 @@ def find_quads(img_rgb):
     s = DETECT_W / w0
     small = cv2.resize(img_rgb, (DETECT_W, int(round(h0 * s))), interpolation=cv2.INTER_AREA)
     gray = cv2.cvtColor(small, cv2.COLOR_RGB2GRAY)
-    qs = [q / s for q in candidates(gray)]
+    qs = [q / s for q in candidates(gray, 5)]
     return qs, guide_quad(w0, h0)

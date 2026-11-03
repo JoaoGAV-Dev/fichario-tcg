@@ -251,3 +251,30 @@ export async function refreshTcgHistory(card: DbCard, variant = 'normal'): Promi
 export async function warmCard(card: DbCard, variant = 'normal'): Promise<void> {
   await Promise.allSettled([refreshMypSet(card), refreshTcgHistory(card, variant), getFx()]);
 }
+
+/**
+ * Menor preço da MYP de todas as cartas de uma coleção (baixa a coleção se precisar; 1x por dia).
+ * Devolve número da carta → preço. Sem sigla ou sem MYP: mapa vazio.
+ */
+export async function setPriceMap(
+  set: { id: string; name: string; abbr: string | null; official: number },
+  localIds: string[],
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (!set.abbr || !localIds.length) return out;
+  const fake = {
+    id: `${set.id}-${localIds[0]}`, set_id: set.id, set_name: set.name, set_abbr: set.abbr,
+    set_official_count: set.official || null, local_id: localIds[0], myp_path: null,
+  } as unknown as DbCard;
+  await refreshMypSet(fake).catch(() => 0);
+  const db = await getDb();
+  const prefix = `pokemon_${set.abbr.toLowerCase()}_`;
+  const rows = await db.getAllAsync<{ sku: string; price_min: number | null; fetched_on: string }>(
+    'SELECT sku, price_min, fetched_on FROM myp_set WHERE sku LIKE ?', [`${prefix}%`]);
+  const bySku = new Map(rows.filter((r) => r.price_min !== null).map((r) => [r.sku, r.price_min as number]));
+  for (const l of localIds) {
+    const p = bySku.get(mypSku(set.abbr, l, set.official || null));
+    if (p !== undefined) out.set(l, p);
+  }
+  return out;
+}

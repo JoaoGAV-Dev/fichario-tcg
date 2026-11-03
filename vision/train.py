@@ -26,8 +26,7 @@ DIM = 256
 
 
 def _job(a):
-    cid, seed = a
-    return B.augment(B.load_native(cid), np.random.default_rng(seed))
+    return B._aug_job(a)
 
 
 def regional_head(fmap, tf):
@@ -54,11 +53,11 @@ def build(nclass, backbone):
     e = keras.layers.Dense(DIM, use_bias=False, name='proj')(f)
     e = keras.layers.UnitNormalization(name='emb')(e)
     emb_model = keras.Model(inp, e, name='emb')
-    return emb_model
+    return emb_model, bb
 
 
 class CosFace:
-    def __init__(self, nclass, s=30.0, m=0.25):
+    def __init__(self, nclass, s=24.0, m=0.15):
         import tensorflow as tf
         self.tf = tf
         init = tf.keras.initializers.GlorotUniform()
@@ -90,6 +89,7 @@ def main():
     names = [B.norm_name(c['name']) for c in cards]
     N = len(ids)
 
+    B._ALL_IDS[:] = ids
     pool = mp.Pool(max(1, (os.cpu_count() or 2)))  # antes de carregar o TensorFlow
     import tensorflow as tf
     rng = np.random.default_rng(7)
@@ -105,19 +105,24 @@ def main():
             x0 = int(rng.uniform(0.0, 0.3) * w)
             neg_imgs[k] = cv2.resize(c[y0:y0 + int(0.45 * h), x0:x0 + int(0.6 * w)], (W, H))
 
-    model = build(N, args.backbone)
+    model, bb = build(N, args.backbone)
     head = CosFace(N)
-    opt = tf.keras.optimizers.Adam(1e-3)
-    params = model.trainable_variables + [head.Wc]
+    opts = [tf.keras.optimizers.Adam(1e-3)]
 
-    @tf.function
-    def step(x, y):
-        with tf.GradientTape() as tape:
-            e = model(x, training=True)
-            loss = head.loss(e, y)
-        g = tape.gradient(loss, params)
-        opt.apply_gradients(zip(g, params))
-        return loss
+    def make_step():
+        opt = opts[-1]
+        params = model.trainable_variables + [head.Wc]
+
+        @tf.function
+        def step(x, y):
+            with tf.GradientTape() as tape:
+                e = model(x, training=True)
+                loss = head.loss(e, y)
+            g = tape.gradient(loss, params)
+            g = [tf.clip_by_norm(gi, 5.0) for gi in g]
+            opt.apply_gradients(zip(g, params))
+            return loss
+        return step
 
     def batches(epoch):
         order = np.random.default_rng(epoch).permutation(N)
@@ -152,7 +157,12 @@ def main():
               f'neg {m["real_neg_scores"]}')
         return db, m, res
 
-    evaluate('antes do treino')
+    db0, _, _ = evaluate('antes do treino')
+    # cada "classe" começa no vetor da própria carta (evita o colapso do treino do zero)
+    head.Wc.assign(tf.constant(db0.T, tf.float32))
+    bb.trainable = False  # fase 1: só a cabeça (projeção + classes)
+    step = make_step()
+    phase2 = False
     t0 = time.time()
     budget = args.minutes * 60
     gstep = 0
@@ -164,11 +174,22 @@ def main():
         for x, y in batches(epoch):
             # LR: cosseno ao longo do tempo disponível
             frac = min(1.0, (time.time() - t0) / budget)
-            opt.learning_rate.assign(1e-3 * (0.02 + 0.98 * 0.5 * (1 + math.cos(math.pi * frac))))
+            if not phase2 and frac > 0.15:
+                # fase 2: libera a rede toda (menos BatchNorm), com passo menor
+                phase2 = True
+                bb.trainable = True
+                for l in bb.layers:
+                    if isinstance(l, tf.keras.layers.BatchNormalization):
+                        l.trainable = False
+                opts.append(tf.keras.optimizers.Adam(2e-4))
+                step = make_step()
+                B.log('fase 2: treinando a rede inteira')
+            base = 1e-3 if not phase2 else 2e-4
+            opts[-1].learning_rate.assign(base * (0.05 + 0.95 * 0.5 * (1 + math.cos(math.pi * frac))))
             losses.append(float(step(x, y)))
             gstep += 1
             if gstep % 50 == 0:
-                B.log(f'época {epoch} passo {gstep} perda {np.mean(losses[-50:]):.3f} lr {float(opt.learning_rate.numpy()):.5f}')
+                B.log(f'época {epoch} passo {gstep} perda {np.mean(losses[-50:]):.3f} lr {float(opts[-1].learning_rate.numpy()):.5f}')
             if time.time() - t0 > budget:
                 break
         epoch += 1
@@ -177,8 +198,11 @@ def main():
             B.log(f'1 época = {first_epoch_time / 60:.1f} min')
         if time.time() - t0 > budget:
             break
-        if epoch % 4 == 0:
-            evaluate(f'época {epoch}')
+        if epoch % 3 == 0:
+            _, m_, _ = evaluate(f'época {epoch}')
+            if m_['syn_top1_id'] < 0.2 and epoch >= 3 and os.environ.get('NOSTOP') is None:
+                B.log('treino degringolou; parando')
+                break
     pool.close()
 
     db, m, res = evaluate('final')
@@ -186,7 +210,7 @@ def main():
     rows = []
     for r, x in zip(real, res):
         t = x['top'][0]
-        ok = x['label'] in B.LABELS and B.LABELS[x['label']](names[t])
+        ok = x['label'] != 'none' and B.label_ok(x['label'], names[t])
         rows.append((r['cands'][x['cand']], B.load_card(ids[t]),
                      f"{r['file'][:20]} {x['kind']} {x['score']:.3f} m{x['margin']:.3f} -> {ids[t]} {names[t]}", ok))
     B.contact(rows, os.path.join(B.OUT, 'report_real.jpg'))

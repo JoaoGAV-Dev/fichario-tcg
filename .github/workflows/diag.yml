@@ -54,21 +54,22 @@ jobs:
             adb logcat -c
             adb shell am start -W -n com.seunome.fichariotcg/.MainActivity || true
             sleep 20
-            adb exec-out screencap -p > diag/01-inicio.png || true
-            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://dev-vision" com.seunome.fichariotcg || true
-            sleep 150
-            adb exec-out screencap -p > diag/00-vision.png || true
-            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://scan" com.seunome.fichariotcg || true
+            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://dev-seed" com.seunome.fichariotcg || true
+            sleep 75
+            adb exec-out screencap -p > diag/02-coleta.png || true
+            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://set/sv03?name=Obsidiana" com.seunome.fichariotcg || true
             sleep 25
-            adb exec-out screencap -p > diag/10-scan.png || true
-            sleep 15
-            adb exec-out screencap -p > diag/11-scan.png || true
-            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://settings" com.seunome.fichariotcg || true
-            sleep 8
-            adb exec-out screencap -p > diag/12-ajustes.png || true
+            adb exec-out screencap -p > diag/20-fichario.png || true
+            adb shell input swipe 160 560 160 200 800; sleep 2
+            adb exec-out screencap -p > diag/21-fichario-baixo.png || true
+            adb shell input swipe 300 420 20 420 400; sleep 3
+            adb exec-out screencap -p > diag/22-fichario-pag2.png || true
+            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://set/sve?name=Energias" com.seunome.fichariotcg || true
+            sleep 20
+            adb exec-out screencap -p > diag/23-sve.png || true
             (adb shell pidof com.seunome.fichariotcg && echo "APP RODANDO") > diag/status.txt || echo "APP FECHOU" > diag/status.txt
             adb logcat -d > diag/logcat-completo.txt
-            grep -E "dev-vision|CardVision|AndroidRuntime|FATAL|ReactNativeJS" diag/logcat-completo.txt > diag/logcat-app.txt || true
+            grep -E "ReactNativeJS|AndroidRuntime|FATAL" diag/logcat-completo.txt > diag/logcat-app.txt || true
       - name: Publicar diagnóstico
         if: always()
         uses: softprops/action-gh-release@v2
