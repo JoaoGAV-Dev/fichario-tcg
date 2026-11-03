@@ -50,13 +50,28 @@ jobs:
           script: |
             mkdir -p diag
             adb install -r android/app/build/outputs/apk/release/app-release.apk
+            adb shell pm grant com.seunome.fichariotcg android.permission.CAMERA || true
             adb logcat -c
             adb shell am start -W -n com.seunome.fichariotcg/.MainActivity || true
-            sleep 30
-            adb exec-out screencap -p > diag/tela-inicial.png || true
+            sleep 25
+            adb exec-out screencap -p > diag/1-colecao.png || true
+            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://sets" com.seunome.fichariotcg || true
+            sleep 15
+            adb exec-out screencap -p > diag/2-colecoes.png || true
+            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://set/sv03" com.seunome.fichariotcg || true
+            sleep 15
+            adb exec-out screencap -p > diag/3-set.png || true
+            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://card/sv03-125" com.seunome.fichariotcg || true
+            sleep 25
+            adb exec-out screencap -p > diag/4-carta.png || true
+            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://scan" com.seunome.fichariotcg || true
+            sleep 15
+            adb exec-out screencap -p > diag/5-scan.png || true
+            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://settings" com.seunome.fichariotcg || true
+            sleep 8
+            adb exec-out screencap -p > diag/6-ajustes.png || true
             (adb shell pidof com.seunome.fichariotcg && echo "APP RODANDO") > diag/status.txt || echo "APP FECHOU" > diag/status.txt
             adb logcat -d > diag/logcat-completo.txt
-            adb logcat -d -s AndroidRuntime:E ReactNativeJS:V ReactNative:V Expo:V ExpoModulesCore:V DEBUG:V libc:V > diag/logcat-app.txt || true
       - name: Publicar diagnóstico
         if: always()
         uses: softprops/action-gh-release@v2
