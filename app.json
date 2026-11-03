@@ -53,7 +53,17 @@
         }
       ],
       "expo-sqlite",
-      "expo-background-task"
+      "expo-background-task",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableMinifyInReleaseBuilds": false,
+            "enableShrinkResourcesInReleaseBuilds": false,
+            "extraProguardRules": "-keep class * extends androidx.room.RoomDatabase { <init>(); }\n-keep class androidx.work.** { *; }"
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
