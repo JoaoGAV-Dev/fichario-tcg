@@ -16,7 +16,9 @@ Todo push na branch `main` gera um APK novo automaticamente (GitHub Actions → 
 | Parte | Fonte | Como |
 |---|---|---|
 | Coleções e cartas (PT-BR) | TCGdex | API aberta, sem chave |
-| Scanner | Google ML Kit, no aparelho | Leitura contínua em 2 passes (carta inteira para o **nome** + rodapé **ampliado 3×** para sigla/número), casada com o catálogo local de ~14 mil cartas PT e o índice de siglas. Aceita rodapé sem total (energias/promos) e marca de regulamento colada ("GOBF") |
+| Scanner | No aparelho (CameraX + OpenCV + TensorFlow Lite) | **Reconhecimento pela imagem**: acha a borda da carta quadro a quadro (contorno amarelo → verde), endireita o recorte e compara a "impressão digital" da arte com ~19,6 mil cartas (PT + promos/energias só em inglês). Funciona offline depois de baixar o banco (~15 MB, 1ª vez) |
+| Banco de cartas | GitHub Actions (`vision/build_db.py`) | Toda segunda: baixa as imagens do TCGdex, gera o modelo e os vetores e publica na release `cards-db`. Relatório com fotos reais em `cards-db-report` |
+| Scanner antigo (reserva) | Google ML Kit | Leitura do rodapé (sigla/número), usado se o banco não puder ser baixado |
 | Preço na hora | Cache local + MYP por coleção + cotação | Na 1ª carta de uma coleção, baixa o menor preço de **todas** as cartas dela (~1 s); as próximas aparecem instantâneas |
 | Preço MYP completo | mypcards.com | Menor, médio e último vendido (em segundo plano) |
 | Preço Liga | ligapokemon.com.br | Navegador escondido dentro do app (a Liga bloqueia robôs com Cloudflare) |
@@ -39,13 +41,17 @@ npm install
 npm test             # parsers (MYP/Liga/rodapé) e cálculo de variação
 npx tsc --noEmit
 ```
-O scanner usa um módulo nativo próprio (`modules/card-ocr`, ML Kit), então **não roda no Expo Go**: o build é feito pelo GitHub Actions.
+O scanner usa módulos nativos próprios (`modules/card-vision` e `modules/card-ocr`), então **não roda no Expo Go**: o build é feito pelo GitHub Actions.
+
+Reconhecimento por imagem: `vision/cardvision.py` (detecção, igual a `CardDetector.kt`), `vision/build_db.py` (banco + avaliação; `workflow_dispatch` com `eval` compara redes) e `vision/real/` (fotos reais usadas no teste — ponha mais fotos `<nome>__<n>.jpg` para medir).
 
 ```
 src/app/            telas: coleção, escanear, coleções, ajustes, carta, coleção (set)
 src/lib/            db (SQLite), prices, collection, liga (WebView), background, backup, ocr, match, footer, tcgdex
 src/lib/sources/    parsers de MYP/Liga + coleta
+modules/card-vision/ câmera com contorno ao vivo + reconhecimento (Android Kotlin)
 modules/card-ocr/   módulo nativo de OCR (Android Kotlin; iOS Swift ainda não testado)
+vision/             geração e teste do banco de cartas (Python, roda no GitHub Actions)
 .github/workflows/  build do APK
 tests/              testes
 ```
