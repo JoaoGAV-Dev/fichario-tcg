@@ -48,3 +48,6 @@ yarn-error.*
 # gerados pelo expo prebuild
 /android
 /ios
+out/
+cache/
+__pycache__/

@@ -1,0 +1,55 @@
+# Banco de cartas do reconhecimento por imagem: baixa as imagens das cartas em PT (TCGdex),
+# gera o modelo + as "impressões digitais" e publica na release "cards-db" (o app baixa de lá).
+name: Banco de cartas
+
+on:
+  push:
+    branches: [vision]
+  workflow_dispatch:
+    inputs:
+      eval:
+        description: Testar várias redes e escolher a melhor
+        type: boolean
+        default: false
+  schedule:
+    - cron: '17 6 * * 1'   # toda segunda: inclui cartas novas
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: vision/requirements.txt
+      - run: pip install -r vision/requirements.txt
+      - uses: actions/cache@v4
+        with:
+          path: |
+            cache/img
+            ~/.keras/models
+          key: cards-img-${{ github.run_id }}
+          restore-keys: cards-img-
+      - name: Gerar banco
+        env:
+          TF_CPP_MIN_LOG_LEVEL: '2'
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] || [ "${{ inputs.eval }}" = "true" ]; then
+            python vision/build_db.py --eval
+          else
+            python vision/build_db.py
+          fi
+      - name: Publicar na release cards-db
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view cards-db >/dev/null 2>&1 || gh release create cards-db --prerelease --title "Banco de cartas (reconhecimento)" --notes "Arquivos usados pelo app para reconhecer as cartas pela imagem. Atualizado automaticamente."
+          gh release upload cards-db out/model.tflite out/emb.f16 out/ids.txt out/report.json out/report_real.jpg out/report_syn_errors.jpg --clobber
+          # o manifesto por último: o app só vê a versão nova quando todos os arquivos já estão lá
+          gh release upload cards-db out/manifest.json --clobber
