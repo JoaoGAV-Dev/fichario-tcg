@@ -8,6 +8,8 @@ describe('familyKey', () => {
       expect(familyKey(n)).toBe('energy:dark');
     }
     expect(familyKey('Energia Elétrica')).toBe('energy:lightning');
+    expect(familyKey('Energia de Raios')).toBe('energy:lightning');
+    expect(familyKey('Energia de Grama')).toBe('energy:grass');
     expect(familyKey('Energia de Água Básica')).toBe('energy:water');
   });
   it('outras cartas pelo nome', () => {

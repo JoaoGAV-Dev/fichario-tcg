@@ -5,7 +5,7 @@ const norm = (s: string) =>
 
 const ENERGY_TYPES: Record<string, string[]> = {
   dark: ['escuridao', 'darkness', 'd'], water: ['agua', 'water', 'w'], fire: ['fogo', 'fire', 'r'],
-  grass: ['planta', 'grass', 'g'], lightning: ['eletrica', 'eletrico', 'lightning', 'raio', 'l'],
+  grass: ['planta', 'grama', 'grass', 'g'], lightning: ['eletrica', 'eletrico', 'lightning', 'raio', 'raios', 'l'],
   psychic: ['psiquica', 'psiquico', 'psychic', 'p'], fighting: ['luta', 'fighting', 'f'],
   metal: ['metal', 'metalica', 'm'], fairy: ['fada', 'fairy', 'y'],
 };
