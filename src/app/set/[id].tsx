@@ -17,7 +17,7 @@ import { brl } from '@/lib/format';
 import { setPriceMap } from '@/lib/sources/fast';
 import { getSet, imgUrl, type CardBrief, type SetDetail } from '@/lib/tcgdex';
 import { metaSet } from '@/lib/cardinfo';
-import { visionCard } from '@/lib/vision';
+import { ensureVisionIndex, visionCard } from '@/lib/vision';
 
 type View_ = 'fichario' | 'grade' | 'faltam';
 const PER_PAGE = 9;
@@ -46,11 +46,13 @@ export default function SetScreen() {
   const pager = useRef<FlatList<CardBrief[]>>(null);
 
   useEffect(() => {
-    getSet(id).catch(() => getSet(id, 'en')).catch((e) => {
-      const m = metaSet(id); // lançamento que o TCGdex ainda não tem
+    getSet(id).catch(() => getSet(id, 'en')).catch(async (e) => {
+      // lançamento que o TCGdex ainda não tem: monta pela lista do banco do reconhecimento
+      await ensureVisionIndex().catch(() => null);
+      const m = metaSet(id);
       if (m) return m;
       throw e;
-    }).then(setSet).catch((e) => Alert.alert('Erro', String(e)));
+    }).then(setSet).catch(() => Alert.alert('Coleção indisponível', 'Não consegui abrir esta coleção agora. Confira a internet e tente de novo.'));
   }, [id]);
   const loadOwned = useCallback(() => {
     ownedQtyForSet(id).then(setQty).catch(() => {});

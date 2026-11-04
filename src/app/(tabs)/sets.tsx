@@ -21,7 +21,9 @@ export default function SetsScreen() {
       // lançamentos que o TCGdex ainda não tem (ex.: Reinado Delta) vêm do banco do reconhecimento
       await ensureVisionIndex().catch(() => null);
       const known = new Set(list.flatMap((x) => x.sets.map((y) => y.id)));
-      const novas = visionOnlySets(known);
+      const norm = (n: string) => n.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const names = new Set(list.flatMap((x) => x.sets.map((y) => norm(y.name))));
+      const novas = visionOnlySets(known).filter((n) => !names.has(norm(n.name)));
       setSeries(novas.length ? [{
         id: 'novidades', name: 'Lançamentos recentes',
         sets: novas.map((n) => ({ id: n.id, name: n.name, cardCount: { official: n.total, total: n.total } })),
