@@ -26,7 +26,7 @@ export default function SetsScreen() {
       const novas = visionOnlySets(known).filter((n) => !names.has(norm(n.name)));
       setSeries(novas.length ? [{
         id: 'novidades', name: 'Lançamentos recentes',
-        sets: novas.map((n) => ({ id: n.id, name: n.name, cardCount: { official: n.total, total: n.total } })),
+        sets: novas.map((n) => ({ id: n.id, name: n.name, cardCount: { official: n.official || n.total, total: n.total } })),
       }, ...list] : list);
     }).catch((e) => { Alert.alert('Erro ao carregar coleções', String(e)); setSeries([]); });
   }, []);

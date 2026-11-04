@@ -83,12 +83,12 @@ async function loadMeta(m: VisionManifest) {
  * Coleções que só existem no banco do reconhecimento (lançamentos que o TCGdex ainda não tem).
  * `known` = ids de coleção que o app já conhece pelo TCGdex.
  */
-export function visionOnlySets(known: Set<string>): { id: string; name: string; release: string; total: number; abbr: string | null }[] {
+export function visionOnlySets(known: Set<string>): { id: string; name: string; release: string; total: number; official: number; abbr: string | null }[] {
   if (!meta) return [];
-  const by = new Map<string, { id: string; name: string; release: string; total: number; abbr: string | null }>();
+  const by = new Map<string, { id: string; name: string; release: string; total: number; official: number; abbr: string | null }>();
   for (const c of meta.values()) {
     if (known.has(c.set)) continue;
-    const e = by.get(c.set) ?? { id: c.set, name: c.setName, release: c.release, total: 0, abbr: c.abbr };
+    const e = by.get(c.set) ?? { id: c.set, name: c.setName, release: c.release, total: 0, official: c.official, abbr: c.abbr };
     e.total++;
     by.set(c.set, e);
   }
