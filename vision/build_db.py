@@ -69,6 +69,20 @@ def _ptcg_set_id(tid):
     return re.sub(r'(?<=[a-z])0+(?=\d)', '', t)
 
 
+def _cached_json(ses, name, url, **kw):
+    """Como _get_json, mas guarda a última resposta boa (o pokemontcg.io às vezes fica fora do ar)."""
+    path = os.path.join(CACHE, '..', 'json', name + '.json')
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    data = _get_json(ses, url, **kw)
+    if data and (data.get('data') if isinstance(data, dict) else data):
+        json.dump(data, open(path, 'w'))
+        return data
+    if os.path.exists(path):
+        log(f'{name}: fora do ar, usando a última cópia')
+        return json.load(open(path))
+    return data
+
+
 def _get_json(ses, url, **kw):
     for _ in range(3):
         try:
@@ -152,7 +166,7 @@ def fetch_cards():
         add(c['id'], c.get('name', ''), c.get('localId', ''), img + '/low.webp', 'en-only')
 
     # imagens que faltam no TCGdex: tenta o pokemontcg.io (mesma coleção/número)
-    ptsets = _get_json(ses, 'https://api.pokemontcg.io/v2/sets', params={'pageSize': 250})
+    ptsets = _cached_json(ses, 'ptcg_sets', 'https://api.pokemontcg.io/v2/sets', params={'pageSize': 250})
     ptsets = (ptsets or {}).get('data', [])
     ptset_ids = {s['id'] for s in ptsets}
     by_name = {s['name'].lower(): s['id'] for s in ptsets}
@@ -198,7 +212,7 @@ def fetch_cards():
     if novas:
         log('lançamentos ainda fora do TCGdex, vindos do pokemontcg.io:', novas)
     for ps, sname in {**PTCG_EXTRA_SETS, **novas}.items():
-        data = _get_json(ses, 'https://api.pokemontcg.io/v2/cards', params={'q': f'set.id:{ps}', 'pageSize': 250})
+        data = _cached_json(ses, f'ptcg_{ps}', 'https://api.pokemontcg.io/v2/cards', params={'q': f'set.id:{ps}', 'pageSize': 250})
         log(f'pokemontcg.io {ps}: {len((data or {}).get("data", []))} cartas')
         for c in (data or {}).get('data', []):
             try:

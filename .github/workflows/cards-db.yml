@@ -34,6 +34,7 @@ jobs:
         with:
           path: |
             cache/img
+            cache/json
             ~/.keras/models
           key: cards-img-${{ github.run_id }}
           restore-keys: cards-img-
