@@ -186,9 +186,13 @@ def fetch_cards():
     known = {_ptcg_set_id(t) for t in set(detail) | set(sets_pt)}
     newest = max([(d.get('releaseDate') or '')[:10] for d in detail.values()] or [''])
     novas = {}
+    key = lambda n: re.sub(r'[^a-z0-9]', '', str(n).lower())
+    tcgdex_names = {key(v.get('name')) for v in list(sets_en.values()) + list(detail.values()) if v.get('name')}
     for st in ptsets:
         rel = (st.get('releaseDate') or '').replace('/', '-')
         if st['id'] in known or st['id'] in PTCG_EXTRA_SETS or not rel or rel < newest:
+            continue
+        if key(st.get('name')) in tcgdex_names:  # mesma coleção com outro id (ex.: 30th = me55)
             continue
         novas[st['id']] = PT_SET_NAMES.get(st.get('name', ''), st.get('name', st['id']))
     if novas:
