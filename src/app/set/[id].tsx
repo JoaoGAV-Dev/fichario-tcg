@@ -16,6 +16,7 @@ import { ownedQtyForSet } from '@/lib/collection';
 import { brl } from '@/lib/format';
 import { setPriceMap } from '@/lib/sources/fast';
 import { getSet, imgUrl, type CardBrief, type SetDetail } from '@/lib/tcgdex';
+import { metaSet } from '@/lib/cardinfo';
 import { visionCard } from '@/lib/vision';
 
 type View_ = 'fichario' | 'grade' | 'faltam';
@@ -45,7 +46,11 @@ export default function SetScreen() {
   const pager = useRef<FlatList<CardBrief[]>>(null);
 
   useEffect(() => {
-    getSet(id).catch(() => getSet(id, 'en')).then(setSet).catch((e) => Alert.alert('Erro', String(e)));
+    getSet(id).catch(() => getSet(id, 'en')).catch((e) => {
+      const m = metaSet(id); // lançamento que o TCGdex ainda não tem
+      if (m) return m;
+      throw e;
+    }).then(setSet).catch((e) => Alert.alert('Erro', String(e)));
   }, [id]);
   const loadOwned = useCallback(() => {
     ownedQtyForSet(id).then(setQty).catch(() => {});

@@ -57,6 +57,7 @@ export interface VisionCard {
   image: string; // base do TCGdex ou URL completa
   src: string;
   usd: number | null;
+  abbr: string | null;
 }
 let meta: Map<string, VisionCard> | null = null;
 
@@ -72,10 +73,33 @@ async function loadMeta(m: VisionManifest) {
     if (c.length < 9) continue;
     map.set(c[0], {
       id: c[0], name: c[1], set: c[2], setName: c[3], local: c[4], official: Number(c[5]) || 0, release: c[6],
-      image: c[7], src: c[8], usd: c[9] ? Number(c[9]) || null : null,
+      image: c[7], src: c[8], usd: c[9] ? Number(c[9]) || null : null, abbr: c[10] || null,
     });
   }
   meta = map;
+}
+
+/**
+ * Coleções que só existem no banco do reconhecimento (lançamentos que o TCGdex ainda não tem).
+ * `known` = ids de coleção que o app já conhece pelo TCGdex.
+ */
+export function visionOnlySets(known: Set<string>): { id: string; name: string; release: string; total: number; abbr: string | null }[] {
+  if (!meta) return [];
+  const by = new Map<string, { id: string; name: string; release: string; total: number; abbr: string | null }>();
+  for (const c of meta.values()) {
+    if (known.has(c.set)) continue;
+    const e = by.get(c.set) ?? { id: c.set, name: c.setName, release: c.release, total: 0, abbr: c.abbr };
+    e.total++;
+    by.set(c.set, e);
+  }
+  // só lançamentos recentes (as antigas que faltam no TCGdex são poucas e confundiriam a lista)
+  return [...by.values()].filter((x) => x.release >= '2026-06').sort((a, b) => b.release.localeCompare(a.release));
+}
+
+/** Cartas de uma coleção pelo banco do reconhecimento. */
+export function visionSetCards(setId: string): VisionCard[] {
+  if (!meta) return [];
+  return [...meta.values()].filter((c) => c.set === setId);
 }
 
 /** Dados da carta pelo banco do reconhecimento (null se o banco ainda não carregou). */

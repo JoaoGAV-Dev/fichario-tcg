@@ -56,6 +56,37 @@ PTCG_EXTRA_SETS = {'sve': 'Energias Escarlate e Violeta', 'mee': 'Energias Megae
 
 
 PT_SET_NAMES = {'Delta Reign': 'Reinado Delta'}
+# Lançamentos que ainda não estão em nenhuma API: lista e imagens do Serebii (sai antes de todo mundo).
+# id TCGdex -> (página do Serebii, nome PT, sigla, data, total oficial)
+SEREBII_SETS = {'me06': ('deltareign', 'Reinado Delta', 'DLR', '2026-11-06', 103)}
+
+
+def serebii_cards(ses, sid, page, sname, abbr, rel, official):
+    try:
+        html = ses.get(f'https://serebii.net/card/{page}/', timeout=60,
+                       headers={'User-Agent': 'Mozilla/5.0 (Linux; Android 14) FicharioTCG'}).text
+    except Exception as e:
+        log(f'serebii {page}: erro {e}')
+        return []
+    out = {}
+    for row in html.split('<tr')[1:]:
+        m = re.search(rf'/card/{page}/(\d+)\.shtml', row)
+        if not m:
+            continue
+        n = int(m.group(1))
+        if n in out:
+            continue
+        texts = [t.strip() for t in re.findall(r'>([^<>]{2,60})<', row)]
+        name = next((t for t in texts if re.search(r'[A-Za-z]', t) and '/' not in t
+                     and not t.lower().startswith(('delta', page)) and not t.isdigit()), None)
+        if not name:
+            continue
+        out[n] = {'id': f'{sid}-{n:03d}', 'name': name.replace('&eacute;', 'é'), 'local': f'{n:03d}', 'set': sid,
+                  'set_name': sname, 'release': rel, 'official': official,
+                  'img': f'https://serebii.net/card/{page}/{n}.jpg', 'src': 'serebii', 'usd': '', 'abbr': abbr}
+    cards = [out[k] for k in sorted(out)]
+    log(f'serebii {page}: {len(cards)} cartas; ex.: {[(c["local"], c["name"]) for c in cards[:4]]}')
+    return cards
 
 
 def _tcgdex_set_id(pid):
@@ -249,6 +280,12 @@ def fetch_cards():
                 seen.add(cid)
                 extra += 1
             log(f'{ps}: usando imagens do Limitless TCG')
+    for sid, (page, sname, abbr, rel, official) in SEREBII_SETS.items():
+        for c in serebii_cards(ses, sid, page, sname, abbr, rel, official):
+            if c['id'] not in seen:
+                cards.append(c)
+                seen.add(c['id'])
+                extra += 1
     log(f'{len(pt)} cartas PT e {len(en)} EN na lista; {len(cards)} no banco '
         f'({sum(c["src"] == "en" for c in cards)} PT com imagem EN, {sum(c["src"] == "en-only" for c in cards)} só em inglês, '
         f'{recovered} sem imagem no TCGdex tentadas no pokemontcg.io, {extra} de coleções que faltam no TCGdex)')
@@ -260,12 +297,13 @@ def write_meta(cards, path):
     def clean(v):
         return str(v if v is not None else '').replace('\t', ' ').replace('\n', ' ')
     with open(path, 'w', encoding='utf-8') as f:
-        f.write('id\tname\tset\tset_name\tlocal\tofficial\trelease\timage\tsrc\tusd\n')
+        f.write('id\tname\tset\tset_name\tlocal\tofficial\trelease\timage\tsrc\tusd\tabbr\n')
         for c in cards:
             img = c['img']
             base = img[:-len('/low.webp')] if img.endswith('/low.webp') else img
             f.write('\t'.join(clean(x) for x in (c['id'], c['name'], c['set'], c['set_name'], c['local'],
-                                                 c['official'], c['release'], base, c['src'], c['usd'])) + '\n')
+                                                 c['official'], c['release'], base, c['src'], c['usd'],
+                                                 c.get('abbr', ''))) + '\n')
 
 
 def cache_path(cid):
@@ -282,7 +320,10 @@ def download_all(cards):
 
     def get(c):
         try:
-            r = ses.get(c['img'], timeout=60)
+            r = ses.get(c['img'], timeout=60, headers={'User-Agent': 'Mozilla/5.0 (Linux; Android 14) FicharioTCG'})
+            if r.status_code != 200 and 'serebii.net/card/' in c['img']:  # sem a imagem grande: usa a miniatura
+                r = ses.get(c['img'].replace('/card/', '/card/th/'), timeout=60,
+                            headers={'User-Agent': 'Mozilla/5.0 (Linux; Android 14) FicharioTCG'})
             if r.status_code == 200 and len(r.content) > 500:
                 with open(cache_path(c['id']), 'wb') as f:
                     f.write(r.content)

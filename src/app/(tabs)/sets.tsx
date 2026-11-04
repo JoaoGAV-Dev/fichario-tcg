@@ -8,6 +8,7 @@ import { Loading, Txt } from '@/components/ui';
 import { useTheme } from '@/hooks/use-theme';
 import { ownedBySet } from '@/lib/collection';
 import { getSeries, setLogo, type Serie } from '@/lib/tcgdex';
+import { ensureVisionIndex, visionOnlySets } from '@/lib/vision';
 
 export default function SetsScreen() {
   const t = useTheme();
@@ -16,7 +17,16 @@ export default function SetsScreen() {
   const [q, setQ] = useState('');
 
   useEffect(() => {
-    getSeries().then(setSeries).catch((e) => { Alert.alert('Erro ao carregar coleções', String(e)); setSeries([]); });
+    getSeries().then(async (list) => {
+      // lançamentos que o TCGdex ainda não tem (ex.: Reinado Delta) vêm do banco do reconhecimento
+      await ensureVisionIndex().catch(() => null);
+      const known = new Set(list.flatMap((x) => x.sets.map((y) => y.id)));
+      const novas = visionOnlySets(known);
+      setSeries(novas.length ? [{
+        id: 'novidades', name: 'Lançamentos recentes',
+        sets: novas.map((n) => ({ id: n.id, name: n.name, cardCount: { official: n.total, total: n.total } })),
+      }, ...list] : list);
+    }).catch((e) => { Alert.alert('Erro ao carregar coleções', String(e)); setSeries([]); });
   }, []);
   useFocusEffect(useCallback(() => { ownedBySet().then(setOwned).catch(() => {}); }, []));
 

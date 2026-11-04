@@ -60,20 +60,20 @@ async function infosFor(ids: string[]): Promise<Map<string, Info>> {
   const out = new Map<string, Info>();
   const sets = setsMap;
   const make = (id: string, name: string, setId: string, setName: string | undefined, local: string, official: number,
-    image: string | null, release = ''): Info => {
+    image: string | null, release = '', abbr: string | null = null): Info => {
     const s = sets?.get(setId);
     const tot = s?.cardCount?.official || official;
     const num = Number(local);
     return {
       id, name, setId, setName: s?.name ?? setName ?? setId.toUpperCase(), image,
-      label: `${s?.abbr ?? setId.toUpperCase()} ${local}${tot ? `/${tot}` : ''}`,
+      label: `${s?.abbr ?? abbr ?? setId.toUpperCase()} ${local}${tot ? `/${tot}` : ''}`,
       release, secret: !!tot && Number.isFinite(num) && num > tot,
     };
   };
   const missing: string[] = [];
   for (const id of ids) {
     const m = visionCard(id);
-    if (m) out.set(id, make(id, m.name, m.set, m.setName, m.local, m.official, m.image || null, m.release));
+    if (m) out.set(id, make(id, m.name, m.set, m.setName, m.local, m.official, m.image || null, m.release, m.abbr));
     else missing.push(id);
   }
   if (missing.length) {

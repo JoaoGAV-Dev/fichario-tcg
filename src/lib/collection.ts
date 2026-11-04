@@ -46,7 +46,7 @@ export async function ensureCard(cardId: string): Promise<DbCard> {
   // Cartas que o TCGdex ainda não tem em PT (promos, energias, coleções novas) vêm do catálogo em inglês
   const ptCard = await tryCard(cardId, 'pt');
   const pt = ptCard ?? (await getCardAny(cardId));
-  const fallbackSet = { ...pt.set, abbreviation: undefined } as Awaited<ReturnType<typeof getSet>>;
+  const fallbackSet = { abbreviation: undefined, ...pt.set } as Awaited<ReturnType<typeof getSet>>;
   const [set, en] = await Promise.all([
     (ptCard ? getSet(pt.set.id, 'pt').catch(() => getSet(pt.set.id, 'en')) : getSet(pt.set.id, 'en')).catch(() => fallbackSet),
     ptCard ? tryCard(cardId, 'en') : Promise.resolve(pt),
