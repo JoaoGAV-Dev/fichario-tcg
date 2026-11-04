@@ -55,6 +55,15 @@ BASIC_PT = {'Grass': 'Energia de Planta', 'Fire': 'Energia de Fogo', 'Water': 'E
 PTCG_EXTRA_SETS = {'sve': 'Energias Escarlate e Violeta', 'mee': 'Energias Megaevolução'}
 
 
+PT_SET_NAMES = {'Delta Reign': 'Reinado Delta'}
+
+
+def _tcgdex_set_id(pid):
+    """pokemontcg.io -> padrão do TCGdex: me6 -> me06, me2pt5 -> me02.5, sve -> sve."""
+    t = pid.lower().replace('pt5', '.5')
+    return re.sub(r'^([a-z]+)(\d)(?=\.|$)', r'\g<1>0\2', t)
+
+
 def _ptcg_set_id(tid):
     t = tid.lower().replace('.5', 'pt5')
     return re.sub(r'(?<=[a-z])0+(?=\d)', '', t)
@@ -171,9 +180,20 @@ def fetch_cards():
                 'limitless-img')
             recovered += 1
 
-    # coleções inteiras que não existem no TCGdex
+    # coleções inteiras que não existem no TCGdex: as fixas acima + lançamentos que o pokemontcg.io já tem
+    # e o TCGdex ainda não (ex.: Reinado Delta no dia do lançamento). Ids no padrão do TCGdex (me6 -> me06).
     extra = 0
-    for ps, sname in PTCG_EXTRA_SETS.items():
+    known = {_ptcg_set_id(t) for t in set(detail) | set(sets_pt)}
+    newest = max([(d.get('releaseDate') or '')[:10] for d in detail.values()] or [''])
+    novas = {}
+    for st in ptsets:
+        rel = (st.get('releaseDate') or '').replace('/', '-')
+        if st['id'] in known or st['id'] in PTCG_EXTRA_SETS or not rel or rel < newest:
+            continue
+        novas[st['id']] = PT_SET_NAMES.get(st.get('name', ''), st.get('name', st['id']))
+    if novas:
+        log('lançamentos ainda fora do TCGdex, vindos do pokemontcg.io:', novas)
+    for ps, sname in {**PTCG_EXTRA_SETS, **novas}.items():
         data = _get_json(ses, 'https://api.pokemontcg.io/v2/cards', params={'q': f'set.id:{ps}', 'pageSize': 250})
         log(f'pokemontcg.io {ps}: {len((data or {}).get("data", []))} cartas')
         for c in (data or {}).get('data', []):
@@ -181,7 +201,7 @@ def fetch_cards():
                 n = int(re.sub(r'\D', '', c['number']) or 0)
             except ValueError:
                 continue
-            cid = f'{ps}-{n:03d}'
+            cid = f'{_tcgdex_set_id(ps)}-{n:03d}'
             if cid in seen:
                 continue
             nm = c.get('name', '')
@@ -193,7 +213,7 @@ def fetch_cards():
             img = (c.get('images') or {}).get('small')
             if not img:
                 continue
-            cards.append({'id': cid, 'name': name, 'local': f'{n:03d}', 'set': ps, 'set_name': sname,
+            cards.append({'id': cid, 'name': name, 'local': f'{n:03d}', 'set': _tcgdex_set_id(ps), 'set_name': sname,
                           'release': (st.get('releaseDate') or '').replace('/', '-'),
                           'official': st.get('printedTotal') or 0, 'img': img, 'src': 'ptcg', 'usd': usd or ''})
             seen.add(cid)
