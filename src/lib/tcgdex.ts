@@ -76,7 +76,7 @@ async function get<T>(path: string): Promise<T> {
 
 /** Todas as séries físicas com suas coleções, da mais nova para a mais antiga. */
 export function getSeries(lang: Lang = CATALOG_LANG): Promise<Serie[]> {
-  return cached(`series:${lang}`, 3 * DAY, async () => {
+  return cached(`series:${lang}`, 1 * DAY, async () => {
     const list = await get<{ id: string; name: string; logo?: string }[]>(`/${lang}/series`);
     const physical = list.filter((s) => !DIGITAL_SERIES.has(s.id));
     const full = await Promise.all(physical.map((s) => get<Serie>(`/${lang}/series/${s.id}`)));

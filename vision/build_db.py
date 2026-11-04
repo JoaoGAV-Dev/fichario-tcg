@@ -92,6 +92,10 @@ def fetch_cards():
         for sid, d in ex.map(get_detail, list(sets_en)):
             detail[sid] = d
 
+    novas = sorted(((d.get('releaseDate') or '')[:10], sid, (d.get('cardCount') or {}).get('total'))
+                   for sid, d in detail.items() if (d.get('releaseDate') or '') >= '2026-06')
+    log('coleções mais novas no TCGdex (lançamento, id, cartas):', novas)
+
     def set_info(sid):
         d = detail.get(sid, {})
         name = (sets_pt.get(sid) or sets_en.get(sid) or d or {}).get('name', sid)
@@ -153,12 +157,19 @@ def fetch_cards():
         ps = _ptcg_set_id(sid)
         if ps not in ptset_ids:
             ps = by_name.get(str((sets_en.get(sid) or {}).get('name', '')).lower())
-        if not ps:
-            continue
-        num = str(c.get('localId', '')).lstrip('0') or '0'
         name = pt_names.get(c['id']) or c.get('name', '')
-        add(c['id'], name, c.get('localId', ''), f'https://images.pokemontcg.io/{ps}/{num}.png', 'ptcg-img')
-        recovered += 1
+        num = str(c.get('localId', '')).lstrip('0') or '0'
+        if ps:
+            add(c['id'], name, c.get('localId', ''), f'https://images.pokemontcg.io/{ps}/{num}.png', 'ptcg-img')
+            recovered += 1
+            continue
+        # reserva para coleções recém-lançadas: imagens oficiais em inglês hospedadas pelo Limitless TCG
+        abbr = ((detail.get(sid) or {}).get('abbreviation') or {}).get('official')
+        if abbr and num.isdigit():
+            add(c['id'], name, c.get('localId', ''),
+                f'https://limitlesstcg.nyc3.cdn.digitaloceanspaces.com/tpci/{abbr.upper()}/{abbr.upper()}_{int(num):03d}_R_EN_SM.png',
+                'limitless-img')
+            recovered += 1
 
     # coleções inteiras que não existem no TCGdex
     extra = 0

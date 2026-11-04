@@ -3,7 +3,7 @@
 import { getDb, getMeta, setMeta } from './db';
 import { getSeries, getSet, setIdOf, type CardBrief, type SetBrief } from './tcgdex';
 
-const WEEK = 7 * 86_400_000;
+const WEEK = 2 * 86_400_000; // atualiza a cada 2 dias (coleções novas aparecem logo)
 const API = 'https://api.tcgdex.net/v2/pt';
 
 /** Normaliza nome para comparar: sem acento, minúsculo, só letras/números. */

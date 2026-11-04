@@ -13,7 +13,7 @@ on:
         type: boolean
         default: false
   schedule:
-    - cron: '17 6 * * 1'   # toda segunda: inclui cartas novas
+    - cron: '17 6 * * *'   # todo dia: coleções novas entram no dia seguinte ao TCGdex publicar
 
 permissions:
   contents: write
