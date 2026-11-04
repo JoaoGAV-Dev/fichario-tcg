@@ -64,9 +64,12 @@ jobs:
             adb exec-out screencap -p > diag/21-fichario-baixo.png || true
             adb shell input swipe 300 420 20 420 400; sleep 3
             adb exec-out screencap -p > diag/22-fichario-pag2.png || true
-            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://set/sve?name=Energias" com.seunome.fichariotcg || true
+            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://set/me06?name=Reinado%20Delta" com.seunome.fichariotcg || true
             sleep 20
-            adb exec-out screencap -p > diag/23-sve.png || true
+            adb exec-out screencap -p > diag/23-me06.png || true
+            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://sets" com.seunome.fichariotcg || true
+            sleep 15
+            adb exec-out screencap -p > diag/24-explorar.png || true
             (adb shell pidof com.seunome.fichariotcg && echo "APP RODANDO") > diag/status.txt || echo "APP FECHOU" > diag/status.txt
             adb logcat -d > diag/logcat-completo.txt
             grep -E "ReactNativeJS|AndroidRuntime|FATAL" diag/logcat-completo.txt > diag/logcat-app.txt || true
