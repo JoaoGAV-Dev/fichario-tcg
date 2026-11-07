@@ -81,13 +81,18 @@ def serebii_cards(ses, sid, page, sname, abbr, rel, official):
             continue
         name = None
         # o nome fica no link da carta; "ex" às vezes é uma imagem e o nome pode vir quebrado em várias tags
-        for inner in re.findall(rf'<a[^>]+/card/{page}/{n}\.shtml[^>]*>(.*?)</a>', row, flags=re.S | re.I):
+        for inner in re.findall(rf'<a[^>]+/card/{page}/0*{n}\.shtml[^>]*>(.*?)</a>', row, flags=re.S | re.I):
             t = re.sub(r'<img[^>]*(?:alt|src)="[^"]*\bex\b[^"]*"[^>]*>', ' ex', inner, flags=re.I)
             t = html_lib.unescape(re.sub(r'<[^>]+>', ' ', t))
             t = re.sub(r'\s+', ' ', t).strip()
             if re.search(r'[A-Za-z]', t) and '/' not in t and not t.lower().startswith(('delta', page)):
                 name = t
                 break
+        if not name:  # reserva: primeiro texto da linha que pareça nome
+            t = re.sub(r'<img[^>]*(?:alt|src)="[^"]*\bex\b[^"]*"[^>]*>', ' ex', row, flags=re.I)
+            texts = [re.sub(r'\s+', ' ', html_lib.unescape(x)).strip() for x in re.findall(r'>([^<>]{2,60})<', t)]
+            name = next((x for x in texts if re.search(r'[A-Za-z]', x) and '/' not in x
+                         and not x.lower().startswith(('delta', page)) and not x.isdigit()), None)
         if not name:
             continue
         out[n] = {'id': f'{sid}-{n:03d}', 'name': name, 'local': f'{n:03d}', 'set': sid,
