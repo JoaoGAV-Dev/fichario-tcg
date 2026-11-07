@@ -12,6 +12,7 @@ Uso: python vision/build_db.py --eval   (testa variações)  |  sem --eval usa v
 import argparse
 import concurrent.futures as cf
 import glob
+import html as html_lib
 import io
 import json
 import os
@@ -56,6 +57,8 @@ PTCG_EXTRA_SETS = {'sve': 'Energias Escarlate e Violeta', 'mee': 'Energias Megae
 
 
 PT_SET_NAMES = {'Delta Reign': 'Reinado Delta'}
+# coleções do pokemontcg.io que o TCGdex tem com outro id
+PTCG_ALIASES = {'me55': '30th', 'me55c': '30th-c'}
 # Lançamentos que ainda não estão em nenhuma API: lista e imagens do Serebii (sai antes de todo mundo).
 # id TCGdex -> (página do Serebii, nome PT, sigla, data, total oficial)
 SEREBII_SETS = {'me06': ('deltareign', 'Reinado Delta', 'DLR', '2026-11-06', 103)}
@@ -76,12 +79,18 @@ def serebii_cards(ses, sid, page, sname, abbr, rel, official):
         n = int(m.group(1))
         if n in out:
             continue
-        texts = [t.strip() for t in re.findall(r'>([^<>]{2,60})<', row)]
-        name = next((t for t in texts if re.search(r'[A-Za-z]', t) and '/' not in t
-                     and not t.lower().startswith(('delta', page)) and not t.isdigit()), None)
+        name = None
+        # o nome fica no link da carta; "ex" às vezes é uma imagem e o nome pode vir quebrado em várias tags
+        for inner in re.findall(rf'<a[^>]+/card/{page}/{n}\.shtml[^>]*>(.*?)</a>', row, flags=re.S | re.I):
+            t = re.sub(r'<img[^>]*(?:alt|src)="[^"]*\bex\b[^"]*"[^>]*>', ' ex', inner, flags=re.I)
+            t = html_lib.unescape(re.sub(r'<[^>]+>', ' ', t))
+            t = re.sub(r'\s+', ' ', t).strip()
+            if re.search(r'[A-Za-z]', t) and '/' not in t and not t.lower().startswith(('delta', page)):
+                name = t
+                break
         if not name:
             continue
-        out[n] = {'id': f'{sid}-{n:03d}', 'name': name.replace('&eacute;', 'é'), 'local': f'{n:03d}', 'set': sid,
+        out[n] = {'id': f'{sid}-{n:03d}', 'name': name, 'local': f'{n:03d}', 'set': sid,
                   'set_name': sname, 'release': rel, 'official': official,
                   'img': f'https://serebii.net/card/{page}/{n}.jpg', 'src': 'serebii', 'usd': '', 'abbr': abbr}
     cards = [out[k] for k in sorted(out)]
@@ -229,6 +238,7 @@ def fetch_cards():
     # e o TCGdex ainda não (ex.: Reinado Delta no dia do lançamento). Ids no padrão do TCGdex (me6 -> me06).
     extra = 0
     known = {_ptcg_set_id(t) for t in set(detail) | set(sets_pt)}
+    known_tcgdex = set(detail) | set(sets_pt)
     newest = max([(d.get('releaseDate') or '')[:10] for d in detail.values()] or [''])
     novas = {}
     key = lambda n: re.sub(r'[^a-z0-9]', '', str(n).lower())
@@ -237,8 +247,8 @@ def fetch_cards():
         rel = (st.get('releaseDate') or '').replace('/', '-')
         if st['id'] in known or st['id'] in PTCG_EXTRA_SETS or not rel or rel < newest:
             continue
-        if key(st.get('name')) in tcgdex_names:  # mesma coleção com outro id (ex.: 30th = me55)
-            continue
+        if key(st.get('name')) in tcgdex_names or PTCG_ALIASES.get(st['id']) in known_tcgdex:
+            continue  # mesma coleção com outro id (ex.: 30th = me55)
         novas[st['id']] = PT_SET_NAMES.get(st.get('name', ''), st.get('name', st['id']))
     if novas:
         log('lançamentos ainda fora do TCGdex, vindos do pokemontcg.io:', novas)
