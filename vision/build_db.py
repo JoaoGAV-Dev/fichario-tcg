@@ -79,6 +79,8 @@ def serebii_cards(ses, sid, page, sname, abbr, rel, official):
         n = int(m.group(1))
         if n in out:
             continue
+        if n in (11, 23):
+            log(f'serebii linha {n}:', re.sub(r'\s+', ' ', row)[:900])
         name = None
         # o nome fica no link da carta; "ex" às vezes é uma imagem e o nome pode vir quebrado em várias tags
         for inner in re.findall(rf'<a[^>]+/card/{page}/0*{n}\.shtml[^>]*>(.*?)</a>', row, flags=re.S | re.I):
