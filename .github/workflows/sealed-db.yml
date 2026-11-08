@@ -1,0 +1,53 @@
+# Banco de PRODUTOS LACRADOS (ETB, booster, box, blister…) para o reconhecimento — tcgcsv.com (TCGplayer), grátis.
+name: Banco de lacrados
+
+on:
+  push:
+    branches: [vision]
+    paths: ['vision/build_sealed.py', '.github/workflows/sealed-db.yml']
+  workflow_dispatch:
+  schedule:
+    - cron: '47 7 * * 3'   # toda quarta: produtos novos e preços
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: vision/requirements.txt
+      - run: pip install -r vision/requirements.txt
+      - uses: actions/cache@v4
+        with:
+          path: |
+            cache/sealed
+            ~/.keras/models
+          key: sealed-img-${{ github.run_id }}
+          restore-keys: sealed-img-
+      - name: Gerar banco de lacrados
+        shell: bash
+        env:
+          TF_CPP_MIN_LOG_LEVEL: '2'
+        run: python vision/build_sealed.py 2>&1 | tee sealed_log.txt
+      - name: Relatório (mesmo se falhar)
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view cards-db-report >/dev/null 2>&1 || gh release create cards-db-report --prerelease --title "Relatório do banco de cartas" --notes "Avaliação automática do reconhecimento."
+          for f in sealed_log.txt out/sealed_report.jpg; do [ -f "$f" ] && gh release upload cards-db-report "$f" --clobber; done; true
+      - name: Publicar na release sealed-db
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view sealed-db >/dev/null 2>&1 || gh release create sealed-db --prerelease --title "Banco de lacrados (reconhecimento)" --notes "Produtos lacrados para o reconhecimento por imagem. Atualizado automaticamente."
+          gh release upload sealed-db out/sealed.tflite out/sealed.f16 out/sealed_ids.txt out/sealed.tsv --clobber
+          cp out/sealed_manifest.json out/manifest.json
+          gh release upload sealed-db out/manifest.json --clobber
