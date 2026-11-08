@@ -5,7 +5,8 @@ import type { CardRow } from './sources/collector';
 import { getCard, getSet, tryCard } from './tcgdex';
 
 export type Variant = 'normal' | 'holo' | 'reverse' | 'firstEdition' | 'promo';
-export type Condition = 'M' | 'NM' | 'SP' | 'MP' | 'HP' | 'D';
+/** Estado da carta; graduada usa a nota do slab ("PSA 10", "CGC 9,5"). */
+export type Condition = 'M' | 'NM' | 'SP' | 'MP' | 'HP' | 'D' | (string & {});
 
 export const VARIANT_LABEL: Record<Variant, string> = {
   normal: 'Normal', holo: 'Holo', reverse: 'Reverse', firstEdition: '1ª edição', promo: 'Promo',

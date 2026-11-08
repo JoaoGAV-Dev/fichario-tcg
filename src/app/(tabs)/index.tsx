@@ -90,9 +90,15 @@ export default function Home() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}>
         <View style={styles.rowBetween}>
           <Txt variant="title">Minha Coleção</Txt>
-          <Pressable onPress={() => router.push('/scan')} style={[styles.scanFab, { backgroundColor: t.accent }]}>
-            <MaterialCommunityIcons name="line-scan" size={22} color={t.accentText} />
-          </Pressable>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <Pressable accessibilityLabel="Conferir preço de um anúncio" onPress={() => router.push('/check')}
+              style={[styles.scanFab, { backgroundColor: t.backgroundElement }]}>
+              <MaterialCommunityIcons name="tag-search-outline" size={22} color={t.highlight} />
+            </Pressable>
+            <Pressable onPress={() => router.push('/scan')} style={[styles.scanFab, { backgroundColor: t.accent }]}>
+              <MaterialCommunityIcons name="line-scan" size={22} color={t.accentText} />
+            </Pressable>
+          </View>
         </View>
 
         <View style={styles.segRow}>
@@ -211,6 +217,16 @@ export default function Home() {
 
             {/* ---------------------------------------------------- lacrados */}
             <SealedSummary />
+            <Pressable onPress={() => router.push('/check')}>
+              <View style={[sealedStyles.box, { backgroundColor: t.card, borderColor: t.border }]}>
+                <MaterialCommunityIcons name="tag-search-outline" size={28} color={t.highlight} />
+                <View style={{ flex: 1 }}>
+                  <Txt style={{ fontWeight: '800' }}>Conferir preço de um anúncio</Txt>
+                  <Txt variant="small">Mande o print de uma carta, graduada ou lacrado e veja se o preço está ok</Txt>
+                </View>
+                <MaterialCommunityIcons name="chevron-right" size={22} color={t.textSecondary} />
+              </View>
+            </Pressable>
 
             {/* ---------------------------------------------------- mais valiosas */}
             {dash.top.length ? (

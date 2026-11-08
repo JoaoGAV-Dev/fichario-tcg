@@ -21,6 +21,7 @@ import { catalogByIds, ensureCatalog, setsWithAbbr, type SetMeta } from '@/lib/c
 import { VARIANT_LABEL, addToCollection, defaultVariant, ensureCard, getItem, setQuantity, type Variant } from '@/lib/collection';
 import { brl } from '@/lib/format';
 import { familyKey } from '@/lib/pick';
+import { parseGrading } from '@/lib/grading';
 import { quickPrice } from '@/lib/quickprice';
 import { scanPrefs, useScanPrefs } from '@/lib/scanprefs';
 import { useSettings } from '@/lib/settings';
@@ -45,7 +46,7 @@ interface SealedRow {
 }
 
 /** Carta como o scanner mostra. */
-interface Info {
+export interface Info {
   id: string;
   name: string;
   setId: string;
@@ -61,6 +62,8 @@ interface Row {
   info: Info;
   variant: Variant;
   added: number;
+  /** carta graduada lida na etiqueta do slab ("PSA 10") — vira a condição na coleção */
+  grade?: string;
   price: number | null | undefined; // undefined = buscando
   priceLabel?: string;
   alts: { info: Info; score: number }[];
@@ -68,9 +71,13 @@ interface Row {
 }
 
 let setsMap: Map<string, SetMeta> | null = null;
+/** Siglas/totais das coleções para montar "POR 072/088" (chame antes de infosFor fora do scanner). */
+export async function prepInfos() {
+  if (!setsMap) setsMap = await setsWithAbbr().catch(() => null);
+}
 
 /** Dados das cartas: banco do reconhecimento → catálogo PT → API. */
-async function infosFor(ids: string[]): Promise<Map<string, Info>> {
+export async function infosFor(ids: string[]): Promise<Map<string, Info>> {
   const out = new Map<string, Info>();
   const sets = setsMap;
   const make = (id: string, name: string, setId: string, setName: string | undefined, local: string, official: number,
@@ -119,7 +126,7 @@ export const isBasicEnergy = (i: Info) => familyKey(i.name).startsWith('energy:'
  * Energias básicas são quase idênticas entre coleções: a janela é maior e, se a pessoa já corrigiu
  * uma vez, usa a impressão que ela escolheu.
  */
-function choose(ev: CardEvent, infos: Map<string, Info>): { pick: Info; score: number; alts: { info: Info; score: number }[] } | null {
+export function choose(ev: Pick<CardEvent, 'id' | 'score' | 'matches'>, infos: Map<string, Info>): { pick: Info; score: number; alts: { info: Info; score: number }[] } | null {
   const top = infos.get(ev.id);
   if (!top) return null;
   const fam = familyKey(top.name);
@@ -195,14 +202,14 @@ export default function VisionScan({ onUseOcr, initialKind = 'cards' }: { onUseO
   }, [refMode]);
 
   /** Mostra a carta e (no modo Adicionar) já salva na coleção. */
-  const accept = useCallback(async (info: Info, score: number, alts: Row['alts'], replaceKey?: string) => {
+  const accept = useCallback(async (info: Info, score: number, alts: Row['alts'], replaceKey?: string, grade?: string) => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     pop.setValue(0.92);
     Animated.spring(pop, { toValue: 1, useNativeDriver: true, friction: 5 }).start();
     const tmpKey = `t-${info.id}-${Date.now()}`;
     const consulta = scanPrefs().mode === 'consulta';
     setRows((rs) => [{
-      key: tmpKey, itemId: null, info, variant: 'normal' as Variant, added: consulta ? 0 : 1, price: undefined, alts, score,
+      key: tmpKey, itemId: null, info, variant: 'normal' as Variant, added: consulta ? 0 : 1, price: undefined, alts, score, grade,
     }, ...rs.filter((r) => r.key !== replaceKey)].slice(0, 80));
     if (consulta) {
       loadPrice(tmpKey, info.id, 'normal');
@@ -212,7 +219,7 @@ export default function VisionScan({ onUseOcr, initialKind = 'cards' }: { onUseO
       const full = await ensureCard(info.id);
       const pref = scanPrefs().variant;
       const variant: Variant = pref === 'auto' ? defaultVariant(full) : pref;
-      const { itemId } = await addToCollection(info.id, { variant, condition: 'NM', quantity: 1 });
+      const { itemId } = await addToCollection(info.id, { variant, condition: grade ?? 'NM', quantity: 1 });
       const key = `item-${itemId}`;
       const existing = rowsRef.current.find((r) => r.key === key);
       setRows((rs) => {
@@ -240,7 +247,7 @@ export default function VisionScan({ onUseOcr, initialKind = 'cards' }: { onUseO
     const now = Date.now();
     if (lastAccept.current.id === c.pick.id && now - lastAccept.current.at < 2000) return;
     lastAccept.current = { id: c.pick.id, at: now };
-    await accept(c.pick, c.score, c.alts);
+    await accept(c.pick, c.score, c.alts, undefined, parseGrading(ev.label)?.label);
   }, [accept, flash]);
 
   /** Lacrado reconhecido: idioma pela embalagem (OCR) e já vai para a coleção de lacrados. */
@@ -310,7 +317,7 @@ export default function VisionScan({ onUseOcr, initialKind = 'cards' }: { onUseO
     }
     const others = [{ info: r.info, score: r.score }, ...r.alts.filter((a) => a.info.id !== alt.info.id)];
     lastAccept.current = { id: alt.info.id, at: Date.now() };
-    await accept(alt.info, alt.score, others, r.itemId === null || r.added <= 1 ? r.key : undefined);
+    await accept(alt.info, alt.score, others, r.itemId === null || r.added <= 1 ? r.key : undefined, r.grade);
   }
 
   async function fromGallery() {
@@ -473,14 +480,16 @@ export default function VisionScan({ onUseOcr, initialKind = 'cards' }: { onUseO
                 <Txt numberOfLines={2} style={{ fontWeight: '900', fontSize: 21, lineHeight: 25 }}>{last.info.name}</Txt>
                 <Txt numberOfLines={2} style={{ fontWeight: '700', fontSize: 16, color: t.highlight }}>{last.info.setName}</Txt>
                 <Txt variant="small">
-                  {last.info.label}{last.itemId !== null ? ` · ${VARIANT_LABEL[last.variant]}` : ''}
+                  {last.info.label}{last.itemId !== null ? ` · ${VARIANT_LABEL[last.variant]}` : ''}{last.grade ? ` · ${last.grade}` : ''}
                 </Txt>
                 <Txt style={{ fontWeight: '900', fontSize: 20, color: t.up, marginTop: 2 }}>
                   {last.price === undefined ? '…' : last.price === null ? 'sem preço' : brl(last.price)}
                   {last.price != null && last.price > ENERGY_MAX && isBasicEnergy(last.info)
                     ? <Txt variant="small" style={{ color: t.highlight }}>  confira a coleção</Txt> : null}
                 </Txt>
-                {last.priceLabel && last.price != null ? <Txt variant="small" numberOfLines={1}>{last.priceLabel}</Txt> : null}
+                {last.priceLabel && last.price != null ? (
+                  <Txt variant="small" numberOfLines={1}>{last.grade ? 'carta crua · ' : ''}{last.priceLabel}</Txt>
+                ) : null}
                 <View style={styles.links}>
                   {last.itemId !== null ? (
                     <Pressable hitSlop={8} onPress={() => changeQty(last, -1)}>

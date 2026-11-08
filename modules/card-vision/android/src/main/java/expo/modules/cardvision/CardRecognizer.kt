@@ -20,11 +20,16 @@ object CardRecognizer {
     useGuide: Boolean,
     maxCand: Int,
     flipBelow: Float,
-    refineBelow: Float = 2f
+    refineBelow: Float = 2f,
+    extra: List<Array<Point>> = emptyList()
   ): FrameMatch? {
     val list = ArrayList<Pair<Array<Point>, Boolean>>()
-    quads.take(maxCand).forEach { list.add(Pair(it, false)) }
+    quads.take(maxCand).forEach { q ->
+      list.add(Pair(q, false))
+      CardDetector.slabInner(q)?.let { list.add(Pair(it, false)) }
+    }
     if (useGuide) CardDetector.guideQuads(src.cols(), src.rows()).forEach { list.add(Pair(it, true)) }
+    extra.forEach { list.add(Pair(it, true)) }
     var best: FrameMatch? = null
     for ((q, g) in list) {
       val m = embedSearch(src, q, false)

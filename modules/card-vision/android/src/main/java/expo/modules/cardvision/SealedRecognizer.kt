@@ -25,14 +25,17 @@ object SealedRecognizer {
     return arrayOf(Point(cx - h, cy - h), Point(cx + h, cy - h), Point(cx + h, cy + h), Point(cx - h, cy + h))
   }
 
-  fun recognize(src: Mat, refineBelow: Float): FrameMatch? {
+  fun recognize(src: Mat, refineBelow: Float, wide: Boolean = false): FrameMatch? {
     if (!SealedIndex.ready) return null
     val w = src.cols().toDouble()
     val h = src.rows().toDouble()
     val m = min(w, h)
     var best: FrameMatch? = null
-    for (sc in doubleArrayOf(0.6, 0.8, 0.98)) {
-      val q = square(w / 2, h / 2, m * sc)
+    val qs = ArrayList<Array<Point>>()
+    for (sc in doubleArrayOf(0.6, 0.8, 0.98)) qs.add(square(w / 2, h / 2, m * sc))
+    // foto/print: o produto pode estar em qualquer lugar da imagem
+    if (wide) qs.addAll(CardDetector.gridQuads(src.cols(), src.rows(), doubleArrayOf(0.4, 0.6, 0.85), 1.0))
+    for (q in qs) {
       val r = embedSearch(src, q)
       if (r.isNotEmpty() && (best == null || r[0].score > best.top.score)) best = FrameMatch(q, true, r)
     }

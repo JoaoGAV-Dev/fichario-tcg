@@ -405,19 +405,31 @@ def augment(src, rng, neighbor=None):
     else:  # escuro (teclado, tapete)
         bg = rng.uniform(10, 50) + rng.normal(0, 10, (ch, cw, 3))
     canvas = np.clip(bg, 0, 255).astype(np.uint8)
+    slab = not binder and rng.random() < 0.12
+    if slab:
+        # carta graduada (PSA/CGC/BGS): moldura clara do acrílico em volta e etiqueta com texto acima
+        b = int(rng.uniform(0.03, 0.08) * w)
+        cv2.rectangle(canvas, (m - b, m - b), (m + w + b, m + h + b), tuple(int(v) for v in rng.integers(170, 245, 3)), -1)
+        lab_col = (230, 230, 230) if rng.random() < 0.5 else (200, 30, 40)
+        ly1 = max(2, m - b - int(0.02 * w))
+        cv2.rectangle(canvas, (m - b, 0), (m + w + b, ly1), lab_col, -1)
+        for k in range(int(rng.integers(2, 4))):
+            y = int(ly1 * (k + 1) / 4)
+            cv2.putText(canvas, ''.join(rng.choice(list('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 '), int(rng.integers(6, 14)))),
+                        (m, y), cv2.FONT_HERSHEY_SIMPLEX, rng.uniform(0.3, 0.6), (20, 20, 20), 1, cv2.LINE_AA)
     canvas[m:m + h, m:m + w] = src
     pts = np.array([[m, m], [m + w, m], [m + w, m + h], [m, m + h]], np.float32)
     # erro de detecção da borda: cantos fora do lugar em até ~5%
     sig = rng.uniform(0.0, 0.025) * w
     noisy = pts + np.clip(rng.normal(0, sig, (4, 2)), -0.06 * w, 0.06 * w).astype(np.float32)
-    if rng.random() < (0.45 if binder else 0.2):
+    if rng.random() < (0.45 if binder else 0.35 if slab else 0.2):
         # recorte maior que a carta (moldura central / bolso do fichário): sobra borda e vizinhas
         e = rng.uniform(0.03, 0.14) * w
         noisy = noisy + np.array([[-e, -e], [e, -e], [e, e], [-e, e]], np.float32) * np.array([1, 88 / 63], np.float32)
     out = warp(canvas, noisy).astype(np.float32)
     # sleeve / plástico do fichário: véu claro (menos contraste) e faixas de brilho
-    if binder or rng.random() < 0.35:
-        haze = rng.uniform(0.05, 0.3)
+    if binder or slab or rng.random() < 0.35:
+        haze = rng.uniform(0.03, 0.15) if slab else rng.uniform(0.05, 0.3)
         out = out * (1 - haze) + haze * rng.uniform(150, 230)
         for _ in range(int(rng.integers(1, 4))):
             band = np.zeros((H, W), np.float32)

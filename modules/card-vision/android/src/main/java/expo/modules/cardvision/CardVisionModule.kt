@@ -68,6 +68,52 @@ class CardVisionModule : Module() {
       }
     }
 
+    // Conferir preço: foto ou print (anúncio, slab, lacrado). Tenta carta e lacrado, e lê o texto da imagem.
+    AsyncFunction("analyzeImageAsync") { uri: String, cardStrong: Double, sealedStrong: Double ->
+      val ctx = appContext.reactContext ?: throw CodedException("ERR_CONTEXT", "Contexto indisponível", null)
+      if (!CardDetector.ensureLoaded()) throw CodedException("ERR_OPENCV", "OpenCV não carregou", null)
+      val bmp = loadBitmap(ctx, Uri.parse(uri), 1600)
+      val text = TextReader.read(bmp, 6)
+      val mat = Mat()
+      Utils.bitmapToMat(bmp, mat)
+      bmp.recycle()
+      val t0 = System.currentTimeMillis()
+      val w = mat.cols()
+      val h = mat.rows()
+      fun pack(r: FrameMatch?, extra: Map<String, Any> = emptyMap()): Map<String, Any>? = r?.let {
+        mapOf(
+          "id" to it.top.id,
+          "score" to it.top.score.toDouble(),
+          "quad" to it.quad.flatMap { p -> listOf(p.x / w, p.y / h) },
+          "matches" to it.matches.map { m -> mapOf("id" to m.id, "score" to m.score.toDouble()) }
+        ) + extra
+      }
+      var card: FrameMatch? = null
+      var label = ""
+      if (CardIndex.ready) {
+        val quads = CardDetector.candidates(mat, 10)
+        card = CardRecognizer.recognize(mat, quads, true, 10, 0.8f)
+        if (card == null || card.top.score < cardStrong) {
+          val g = CardRecognizer.recognize(mat, emptyList(), false, 0, 0f, 2f, CardDetector.gridQuads(w, h, doubleArrayOf(0.35, 0.55, 0.85)))
+          if (g != null && (card == null || g.top.score > card.top.score)) card = g
+        }
+        card?.let { label = TextReader.slabLabel(mat, it.quad) }
+      }
+      var sealed: FrameMatch? = null
+      var lang: String? = null
+      if (SealedIndex.ready) {
+        sealed = SealedRecognizer.recognize(mat, sealedStrong.toFloat(), true)
+        sealed?.let { lang = SealedRecognizer.detectLanguage(mat, it.quad) }
+      }
+      mat.release()
+      mapOf(
+        "card" to pack(card, mapOf("label" to label)),
+        "sealed" to pack(sealed, mapOf("lang" to (lang ?: ""))),
+        "text" to text,
+        "ms" to (System.currentTimeMillis() - t0).toInt()
+      )
+    }
+
     View(CardScannerView::class) {
       Events("onCard", "onTrack", "onCameraReady", "onCameraError")
 

@@ -345,7 +345,8 @@ class CardScannerView(context: Context, appContext: AppContext) : ExpoView(conte
           val near = result.matches.filter { it.score >= top.score - 0.05f }.map { it.id }.toSet() + top.id
           lastEmitted = Emitted(near, now)
           lastCard = lastEmitted
-          emitCard(result, if (mode == "sealed") SealedRecognizer.detectLanguage(frame, result.quad) else null)
+          if (mode == "sealed") emitCard(result, SealedRecognizer.detectLanguage(frame, result.quad), "")
+          else emitCard(result, null, TextReader.slabLabel(frame, result.quad)) // carta graduada: etiqueta acima
         } else if (le != null) {
           lastEmitted = Emitted(le.ids + result.matches.filter { it.score >= top.score - 0.03f }.map { it.id }, le.at)
         }
@@ -374,9 +375,10 @@ class CardScannerView(context: Context, appContext: AppContext) : ExpoView(conte
     }
   }
 
-  private fun emitCard(r: FrameMatch, lang: String?) {
+  private fun emitCard(r: FrameMatch, lang: String?, label: String) {
     val payload = mapOf(
       "kind" to mode,
+      "label" to label,
       "lang" to (lang ?: ""),
       "id" to r.top.id,
       "score" to r.top.score.toDouble(),

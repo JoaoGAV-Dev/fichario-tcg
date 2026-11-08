@@ -169,6 +169,49 @@ object CardDetector {
     return out
   }
 
+  /** Ponto (u, v) dentro do quadrilátero (0..1 em cada eixo). */
+  fun lerp(q: Array<Point>, u: Double, v: Double): Point {
+    val ax = q[0].x + (q[1].x - q[0].x) * u
+    val ay = q[0].y + (q[1].y - q[0].y) * u
+    val bx = q[3].x + (q[2].x - q[3].x) * u
+    val by = q[3].y + (q[2].y - q[3].y) * u
+    return Point(ax + (bx - ax) * v, ay + (by - ay) * v)
+  }
+
+  /** Slab (PSA/CGC/BGS): a borda achada costuma ser a do acrílico; a carta fica na parte de baixo. */
+  fun slabInner(q: Array<Point>): Array<Point>? {
+    val w = (dist(q[1], q[0]) + dist(q[2], q[3])) / 2
+    if (quadHeight(q) / w < 1.5) return null
+    return arrayOf(lerp(q, 0.12, 0.29), lerp(q, 0.88, 0.29), lerp(q, 0.88, 0.95), lerp(q, 0.12, 0.95))
+  }
+
+  /** Janelas do tamanho de uma carta espalhadas pela imagem (print de anúncio, carta fora do centro). */
+  fun gridQuads(imgW: Int, imgH: Int, fracs: DoubleArray = doubleArrayOf(0.3, 0.45, 0.65, 0.9), aspect: Double = 88.0 / 63.0): List<Array<Point>> {
+    val out = ArrayList<Array<Point>>()
+    for (f in fracs) {
+      var w = f * imgW
+      var h = w * aspect
+      if (h > 0.98 * imgH) {
+        h = 0.98 * imgH
+        w = h / aspect
+      }
+      val sx = max(1.0, w * 0.5)
+      val sy = max(1.0, h * 0.5)
+      var y = 0.0
+      while (y + h <= imgH + 0.5) {
+        var x = 0.0
+        while (x + w <= imgW + 0.5) {
+          out.add(arrayOf(Point(x, y), Point(x + w, y), Point(x + w, y + h), Point(x, y + h)))
+          x += sx
+        }
+        // encosta na borda direita também
+        if (x - sx + w < imgW - 2) out.add(arrayOf(Point(imgW - w, y), Point(imgW * 1.0, y), Point(imgW * 1.0, y + h), Point(imgW - w, y + h)))
+        y += sy
+      }
+    }
+    return out
+  }
+
   /** Recorte central do tamanho de uma carta, para quando a borda não aparece. */
   fun guideQuad(imgW: Int, imgH: Int, scale: Double = 0.78): Array<Point> {
     var w = scale * imgW

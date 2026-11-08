@@ -11,6 +11,8 @@ export interface CardEvent {
   kind?: VisionKind;
   /** Lacrados: idioma lido na embalagem ('PT' | 'EN' | ''). */
   lang?: string;
+  /** Cartas: texto lido logo acima da carta (etiqueta de slab PSA/CGC/BGS), se houver. */
+  label?: string;
   id: string;
   score: number;
   guide: boolean;
@@ -26,6 +28,22 @@ export interface ImageResult {
   quad?: number[];
   matches: VisionMatch[];
 }
+export interface AnalyzedMatch {
+  id: string;
+  score: number;
+  quad: number[];
+  matches: VisionMatch[];
+  /** carta: etiqueta do slab; lacrado: idioma ('PT' | 'EN' | '') */
+  label?: string;
+  lang?: string;
+}
+export interface AnalyzeResult {
+  card: AnalyzedMatch | null;
+  sealed: AnalyzedMatch | null;
+  /** todo o texto da imagem (OCR) */
+  text: string;
+  ms: number;
+}
 export type TrackState = 'searching' | 'tracking' | 'recognized';
 
 interface CardVisionNative {
@@ -33,6 +51,7 @@ interface CardVisionNative {
   indexInfo(kind?: VisionKind): { ready: boolean; count: number; version: string };
   loadIndexAsync(model: string, emb: string, ids: string, dim: number, version: string, kind?: VisionKind): Promise<number>;
   recognizeImageAsync(uri: string, kind?: VisionKind): Promise<ImageResult>;
+  analyzeImageAsync?(uri: string, cardStrong: number, sealedStrong: number): Promise<AnalyzeResult>;
 }
 
 // Só existe no APK Android (no Expo Go / iOS cai no OCR antigo).
@@ -75,3 +94,9 @@ export interface CardScannerProps extends ViewProps {
 export const CardScannerView: React.ComponentType<CardScannerProps> | null = Native
   ? requireNativeView<CardScannerProps>('CardVision')
   : null;
+
+/** Foto ou print: tenta carta (inclusive em slab) e lacrado, e lê o texto da imagem. */
+export function analyzeImageAsync(uri: string, cardStrong: number, sealedStrong: number): Promise<AnalyzeResult> {
+  if (!Native?.analyzeImageAsync) throw new Error('Atualize o app para conferir preço por foto');
+  return Native.analyzeImageAsync(uri, cardStrong, sealedStrong);
+}

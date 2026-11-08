@@ -73,6 +73,14 @@ jobs:
             adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://sealed" com.seunome.fichariotcg || true
             sleep 8
             adb exec-out screencap -p > diag/26-meus-lacrados.png || true
+            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://check?sample=1" com.seunome.fichariotcg || true
+            sleep 35
+            adb exec-out screencap -p > diag/27-conferir.png || true
+            adb shell input swipe 160 560 160 150 600; sleep 3
+            adb exec-out screencap -p > diag/28-conferir-baixo.png || true
+            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://" com.seunome.fichariotcg || true
+            sleep 6
+            adb exec-out screencap -p > diag/29-inicio.png || true
             adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://sets" com.seunome.fichariotcg || true
             sleep 15
             adb exec-out screencap -p > diag/24-explorar.png || true
