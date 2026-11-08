@@ -317,6 +317,20 @@ def main():
         if best is None or acc > best[0]:
             best = (acc, method, mean, P, db, tmin, top5)
     acc, method, mean, P, db, tmin, top5 = best
+    # produtos "ímã": foto genérica/escura que parece com qualquer cena -> somem da busca
+    prods0 = prods
+    Sn = B.project(Xn, mean, P) @ db.T
+    hub = Sn.max(0) >= tmin - 0.02
+    if hub.sum() <= 0.05 * N:
+        B.log(f'{int(hub.sum())} produtos removidos por parecerem com cenas: ' +
+              '; '.join(prods[i]['name'][:30] for i in np.where(hub)[0][:20]))
+        keep = np.where(~hub)[0]
+        ids = [ids[i] for i in keep]
+        prods = [prods[i] for i in keep]
+        db = db[keep]
+        N = len(ids)
+        tmin = float(max(0.58, np.quantile(Sn[:, keep].max(1), 0.995)))
+        B.log(f'limiar após remoção {tmin:.2f}')
 
     # exportação
     import tensorflow as tf
@@ -357,7 +371,7 @@ def main():
     t1 = (q @ db.T).argmax(1)
     for k in range(min(16, len(test_idx))):
         rows.append((cv2.resize(test_imgs[k], (B.W, B.H)), cv2.resize(load_prod(ids[t1[k]]), (B.W, B.H)),
-                     f'{prods[test_idx[k]]["name"][:24]} -> {prods[t1[k]]["name"][:24]}', t1[k] == test_idx[k]))
+                     f'{prods0[test_idx[k]]["name"][:24]} -> {prods[t1[k]]["name"][:24]}', prods[t1[k]]['id'] == prods0[test_idx[k]]['id']))
     B.contact(rows, os.path.join(B.OUT, 'sealed_report.jpg'))
     B.log('fim')
 
