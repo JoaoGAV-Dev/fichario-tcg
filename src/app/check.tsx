@@ -82,7 +82,7 @@ export default function CheckPrice() {
         const ch = choose({ id: r.card.id, score: r.card.score, matches: r.card.matches }, infos);
         if (ch) c = { pick: ch.pick, alts: ch.alts.map((a) => a.info).slice(0, 6) };
       }
-      if (r.sealed && sm > -0.05) {
+      if (r.sealed && sm > 0) {
         const p = sealedProduct(r.sealed.id);
         if (p) {
           const alts = r.sealed.matches.filter((m) => m.id !== p.id && m.score >= r.sealed!.score - 0.12)
@@ -147,7 +147,7 @@ export default function CheckPrice() {
   const askedN = parseTypedPrice(asked);
   const v = askedN !== null && ref?.value ? verdict(askedN, ref.value) : null;
   const graded = kind === 'card' && !!gradeLabel;
-  const vColor = !v ? t.text : v.level === 'barato' ? t.up : v.level === 'justo' ? t.text : v.level === 'caro' ? t.highlight : t.down;
+  const vColor = !v || graded ? t.highlight : v.level === 'barato' ? t.up : v.level === 'justo' ? t.text : v.level === 'caro' ? t.highlight : t.down;
 
   async function addIt() {
     try {
