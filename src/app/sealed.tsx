@@ -37,7 +37,7 @@ export default function SealedScreen() {
         contentContainerStyle={{ padding: 16, paddingBottom: 60, gap: 10 }}
         ListHeaderComponent={
           <View style={[styles.head, { backgroundColor: t.card, borderColor: t.border }]}>
-            <Txt variant="small">{count} {count === 1 ? 'produto' : 'produtos'} lacrados</Txt>
+            <Txt variant="small">{count} {count === 1 ? 'produto lacrado' : 'produtos lacrados'}</Txt>
             <Txt style={{ fontSize: 26, fontWeight: '900', color: t.up }}>≈ {brl(total)}</Txt>
             <Txt variant="small">Valor de mercado nos EUA (TCGplayer) convertido para reais.</Txt>
           </View>

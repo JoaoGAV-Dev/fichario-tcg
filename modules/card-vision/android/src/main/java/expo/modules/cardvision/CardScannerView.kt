@@ -331,7 +331,10 @@ class CardScannerView(context: Context, appContext: AppContext) : ExpoView(conte
       val prev = if (history.size >= 2) history[history.size - 2] else null
       val agrees = prev != null && prev.any { it.id == top.id }
       // com uma carta já reconhecida na frente, trocar exige 2 quadros seguidos (evita somar a mesma carta de novo)
-      val confirmed = if (lastEmitted != null) top.score >= minScore && agrees
+      // lacrados (sem borda para conferir): exige o mesmo produto como 1º em 2 quadros seguidos
+      val agreesTop = prev != null && prev.firstOrNull()?.id == top.id
+      val confirmed = if (mode == "sealed") top.score >= minScore && agreesTop
+      else if (lastEmitted != null) top.score >= minScore && agrees
       else top.score >= strongScore || (top.score >= minScore && agrees)
       if (confirmed) {
         val le = lastEmitted

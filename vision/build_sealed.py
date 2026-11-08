@@ -249,13 +249,41 @@ def main():
     test_imgs = pool.map(_job, [(ids[i], 500_000 + k) for k, i in enumerate(test_idx)], chunksize=16)
     ia = np.repeat(np.arange(N), args.naug)
     jobs = [(ids[i], 9_000_000 + k) for k, i in enumerate(ia)]
-    # negativos: fundos e cartas avulsas (não são produto)
+    # negativos: cenas que NÃO são produto (fotos reais de mesa/mão/fichário/cartas, cenas com formas e fundos lisos)
     neg = []
     for k in range(200):
         r2 = np.random.default_rng(77 + k)
         bgc = r2.integers(0, 255, 3).astype(np.float32)
         g = np.broadcast_to(bgc, (S, S, 3)) + r2.normal(0, r2.uniform(5, 40), (S, S, 3))
         neg.append(cv2.GaussianBlur(np.clip(g, 0, 255).astype(np.uint8), (0, 0), r2.uniform(0.5, 4)))
+    for k in range(400):
+        r2 = np.random.default_rng(5000 + k)
+        g = np.full((S, S, 3), r2.integers(0, 255, 3), np.uint8)
+        for _ in range(int(r2.integers(2, 9))):
+            x0, y0 = r2.integers(-40, S, 2)
+            w, h = r2.integers(20, S, 2)
+            c = tuple(int(v) for v in r2.integers(0, 255, 3))
+            if r2.random() < 0.7:
+                cv2.rectangle(g, (int(x0), int(y0)), (int(x0 + w), int(y0 + h)), c, -1)
+            else:
+                cv2.circle(g, (int(x0), int(y0)), int(w // 2), c, -1)
+        if r2.random() < 0.5:  # pixelado (cenas virtuais / baixa luz)
+            q = int(r2.integers(8, 40))
+            g = cv2.resize(cv2.resize(g, (q, q), interpolation=cv2.INTER_AREA), (S, S), interpolation=cv2.INTER_NEAREST)
+        neg.append(cv2.GaussianBlur(g, (0, 0), r2.uniform(0.3, 2)))
+    real_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'real')
+    for k, fn in enumerate(sorted(os.listdir(real_dir)) if os.path.isdir(real_dir) else []):
+        im = cv2.imread(os.path.join(real_dir, fn))
+        if im is None:
+            continue
+        im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
+        h, w = im.shape[:2]
+        for j in range(12):
+            r2 = np.random.default_rng(9000 + 31 * k + j)
+            side = int(min(h, w) * r2.uniform(0.35, 1.0))
+            y = int(r2.integers(0, h - side + 1)); x = int(r2.integers(0, w - side + 1))
+            neg.append(cv2.resize(im[y:y + side, x:x + side], (S, S), interpolation=cv2.INTER_AREA))
+    B.log(f'{len(neg)} negativos')
 
     import tensorflow as tf  # noqa: F401 (depois de criar os processos)
     fm = make_model(args.backbone)
@@ -282,7 +310,7 @@ def main():
                                    for a, b in zip(t1, test_idx)]))
         top5 = float(np.mean([test_idx[i] in np.argsort(-sc[i])[:5] for i in range(len(t1))]))
         negs = (B.project(Xn, mean, P) @ db.T).max(1)
-        tmin = float(max(0.55, np.quantile(negs, 0.98)))
+        tmin = float(max(0.58, np.quantile(negs, 0.995)))
         top_s = sc.max(1)
         B.log(f'{method}: acerto {acc:.3f} (mesmo nome {same_name:.3f}) top5 {top5:.3f} | limiar {tmin:.2f} '
               f'recall {np.mean(top_s >= tmin):.2f}')
