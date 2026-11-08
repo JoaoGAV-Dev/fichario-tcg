@@ -85,6 +85,22 @@ const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS catalog_name ON catalog(name_norm);
   CREATE INDEX IF NOT EXISTS catalog_set ON catalog(set_id, local_id);
   `,
+  // v5: produtos lacrados (ETB, booster, box, blister…)
+  `
+  CREATE TABLE IF NOT EXISTS sealed_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    lang TEXT NOT NULL,
+    type TEXT,
+    set_name TEXT,
+    image TEXT,
+    usd REAL,
+    quantity INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(product_id, lang)
+  );
+  `,
 ];
 
 async function open(): Promise<SQLiteDatabase> {

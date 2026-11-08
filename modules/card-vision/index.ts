@@ -6,7 +6,11 @@ export interface VisionMatch {
   id: string;
   score: number;
 }
+export type VisionKind = 'cards' | 'sealed';
 export interface CardEvent {
+  kind?: VisionKind;
+  /** Lacrados: idioma lido na embalagem ('PT' | 'EN' | ''). */
+  lang?: string;
   id: string;
   score: number;
   guide: boolean;
@@ -14,6 +18,7 @@ export interface CardEvent {
 }
 export interface ImageResult {
   id?: string;
+  lang?: string;
   score?: number;
   guide?: boolean;
   ms: number;
@@ -25,9 +30,9 @@ export type TrackState = 'searching' | 'tracking' | 'recognized';
 
 interface CardVisionNative {
   isAvailable(): boolean;
-  indexInfo(): { ready: boolean; count: number; version: string };
-  loadIndexAsync(model: string, emb: string, ids: string, dim: number, version: string): Promise<number>;
-  recognizeImageAsync(uri: string): Promise<ImageResult>;
+  indexInfo(kind?: VisionKind): { ready: boolean; count: number; version: string };
+  loadIndexAsync(model: string, emb: string, ids: string, dim: number, version: string, kind?: VisionKind): Promise<number>;
+  recognizeImageAsync(uri: string, kind?: VisionKind): Promise<ImageResult>;
 }
 
 // Só existe no APK Android (no Expo Go / iOS cai no OCR antigo).
@@ -41,21 +46,22 @@ export const isVisionAvailable = (): boolean => {
   }
 };
 
-export const indexInfo = () => Native?.indexInfo() ?? { ready: false, count: 0, version: '' };
+export const indexInfo = (kind: VisionKind = 'cards') => Native?.indexInfo(kind) ?? { ready: false, count: 0, version: '' };
 
-export function loadIndexAsync(model: string, emb: string, ids: string, dim: number, version: string) {
+export function loadIndexAsync(model: string, emb: string, ids: string, dim: number, version: string, kind: VisionKind = 'cards') {
   if (!Native) throw new Error('Reconhecimento por imagem indisponível nesta versão');
-  return Native.loadIndexAsync(model, emb, ids, dim, version);
+  return Native.loadIndexAsync(model, emb, ids, dim, version, kind);
 }
 
-export function recognizeImageAsync(uri: string) {
+export function recognizeImageAsync(uri: string, kind: VisionKind = 'cards') {
   if (!Native) throw new Error('Reconhecimento por imagem indisponível nesta versão');
-  return Native.recognizeImageAsync(uri);
+  return Native.recognizeImageAsync(uri, kind);
 }
 
 export interface CardScannerProps extends ViewProps {
   active: boolean;
   paused?: boolean;
+  mode?: VisionKind;
   zoom?: number;
   torch?: boolean;
   minScore?: number;

@@ -26,9 +26,23 @@ import { scanPrefs, useScanPrefs } from '@/lib/scanprefs';
 import { useSettings } from '@/lib/settings';
 import { imgUrl, setIdOf, tryCard } from '@/lib/tcgdex';
 import { ensureVisionIndex, onVisionStatus, visionCard, visionStatus, type VisionStatus } from '@/lib/vision';
+import {
+  LANG_LABEL, addSealed, decSealed, ensureSealedIndex, onSealedStatus, sealedBRL, sealedProduct, sealedStatus,
+  type SealedLang, type SealedProduct, type SealedStatus,
+} from '@/lib/sealed';
+import { getFx } from '@/lib/sources/fast';
+import type { VisionKind } from '../../modules/card-vision';
 
 /** Energia básica comum acima disso é quase certamente a impressão errada (antiga/rara). */
 const ENERGY_MAX = 15;
+
+interface SealedRow {
+  key: string;
+  product: SealedProduct;
+  lang: SealedLang;
+  itemId: number | null;
+  alts: SealedProduct[];
+}
 
 /** Carta como o scanner mostra. */
 interface Info {
@@ -123,7 +137,7 @@ function choose(ev: CardEvent, infos: Map<string, Info>): { pick: Info; score: n
   return { pick, score: ev.score, alts };
 }
 
-export default function VisionScan({ onUseOcr }: { onUseOcr: () => void }) {
+export default function VisionScan({ onUseOcr, initialKind = 'cards' }: { onUseOcr: () => void; initialKind?: VisionKind }) {
   const t = useTheme();
   const insets = useSafeAreaInsets();
   const focused = useIsFocused();
@@ -134,6 +148,12 @@ export default function VisionScan({ onUseOcr }: { onUseOcr: () => void }) {
   const [vs, setVs] = useState<VisionStatus>(visionStatus());
   const [track, setTrack] = useState<TrackState>('searching');
   const [torch, setTorch] = useState(false);
+  const [kind, setKind] = useState<VisionKind>(initialKind);
+  useEffect(() => setKind(initialKind), [initialKind]);
+  const [ss, setSs] = useState<SealedStatus>(sealedStatus());
+  const [sealedRows, setSealedRows] = useState<SealedRow[]>([]);
+  const [showSealedAlts, setShowSealedAlts] = useState(false);
+  const [fx, setFx] = useState<number | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [showList, setShowList] = useState(false);
   const [showAlts, setShowAlts] = useState(false);
@@ -149,13 +169,20 @@ export default function VisionScan({ onUseOcr }: { onUseOcr: () => void }) {
     const sub = AppState.addEventListener('change', (s) => setAppActive(s === 'active'));
     const off = onVisionStatus(setVs);
     ensureVisionIndex();
+    const offS = onSealedStatus(setSs);
+    getFx().then((f) => setFx(f?.USD ?? null)).catch(() => {});
     ensureCatalog().catch(() => {});
     setsWithAbbr().then((m) => (setsMap = m)).catch(() => {});
     return () => {
       sub.remove();
       off();
+      offS();
     };
   }, []);
+
+  useEffect(() => {
+    if (kind === 'sealed') ensureSealedIndex();
+  }, [kind]);
 
   const flash = useCallback((msg: string) => {
     setToast(msg);
@@ -216,9 +243,47 @@ export default function VisionScan({ onUseOcr }: { onUseOcr: () => void }) {
     await accept(c.pick, c.score, c.alts);
   }, [accept, flash]);
 
+  /** Lacrado reconhecido: idioma pela embalagem (OCR) e já vai para a coleção de lacrados. */
+  const handleSealed = useCallback(async (ev: CardEvent) => {
+    const p = sealedProduct(ev.id);
+    if (!p) return;
+    const now = Date.now();
+    if (lastAccept.current.id === ev.id && now - lastAccept.current.at < 2500) return;
+    lastAccept.current = { id: ev.id, at: now };
+    const lang: SealedLang = p.lang === 'JP' ? 'JP' : ev.lang === 'EN' ? 'EN' : 'PT';
+    const alts = ev.matches.filter((m) => m.id !== ev.id && m.score >= ev.score - 0.12)
+      .map((m) => sealedProduct(m.id)).filter((x): x is SealedProduct => !!x).slice(0, 6);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    pop.setValue(0.92);
+    Animated.spring(pop, { toValue: 1, useNativeDriver: true, friction: 5 }).start();
+    let itemId: number | null = null;
+    if (scanPrefs().mode === 'auto') itemId = await addSealed(p, lang).catch(() => null);
+    setSealedRows((rs) => [{ key: `${p.id}-${now}`, product: p, lang, itemId, alts }, ...rs].slice(0, 60));
+  }, [pop]);
+
   const onCard = useCallback((e: { nativeEvent: CardEvent }) => {
-    handleMatch(e.nativeEvent).catch(() => {});
-  }, [handleMatch]);
+    if (e.nativeEvent.kind === 'sealed') handleSealed(e.nativeEvent).catch(() => {});
+    else handleMatch(e.nativeEvent).catch(() => {});
+  }, [handleMatch, handleSealed]);
+
+  async function undoSealed(r: SealedRow) {
+    if (r.itemId !== null) {
+      await decSealed(r.itemId);
+    }
+    setSealedRows((rs) => rs.filter((x) => x.key !== r.key));
+    flash(`${r.product.name} removido`);
+  }
+
+  /** Troca o idioma (PT ↔ EN) ou o produto, desfazendo o anterior. */
+  async function replaceSealed(r: SealedRow, product: SealedProduct, lang: SealedLang) {
+    setShowSealedAlts(false);
+    if (r.itemId !== null) {
+      await decSealed(r.itemId);
+    }
+    const itemId = r.itemId !== null ? await addSealed(product, lang).catch(() => null) : null;
+    const alts = [r.product, ...r.alts.filter((a) => a.id !== product.id)].filter((a) => a.id !== product.id);
+    setSealedRows((rs) => rs.map((x) => (x.key === r.key ? { ...x, product, lang, itemId, alts } : x)));
+  }
 
   async function changeQty(r: Row, delta: number) {
     if (r.itemId === null) {
@@ -254,12 +319,16 @@ export default function VisionScan({ onUseOcr }: { onUseOcr: () => void }) {
     if (res.canceled || !res.assets?.[0]) return;
     setGalleryBusy(true);
     try {
-      const r = await recognizeImageAsync(res.assets[0].uri);
-      if (r.id && (r.score ?? 0) >= vs.thresholds.min - 0.05) {
+      const r = await recognizeImageAsync(res.assets[0].uri, kind);
+      const th = kind === 'sealed' ? ss.thresholds.min : vs.thresholds.min;
+      if (r.id && (r.score ?? 0) >= th - 0.05) {
         lastAccept.current = { id: '', at: 0 };
-        await handleMatch({ id: r.id, score: r.score ?? 0, guide: !!r.guide, matches: r.matches });
+        const ev = { id: r.id, score: r.score ?? 0, guide: !!r.guide, matches: r.matches, kind, lang: r.lang };
+        if (kind === 'sealed') await handleSealed(ev);
+        else await handleMatch(ev);
       } else {
-        flash('Não reconheci uma carta nessa foto. Tente uma foto mais de frente.');
+        flash(kind === 'sealed' ? 'Não reconheci o produto nessa foto. Tente uma foto de frente.'
+          : 'Não reconheci uma carta nessa foto. Tente uma foto mais de frente.');
       }
     } catch (e) {
       flash(String((e as Error)?.message ?? e).slice(0, 80));
@@ -271,10 +340,13 @@ export default function VisionScan({ onUseOcr }: { onUseOcr: () => void }) {
   const last = rows[0];
   const total = rows.reduce((a, r) => a + (r.price ?? 0) * (r.itemId === null ? 1 : r.added), 0);
   const count = rows.reduce((a, r) => a + (r.itemId === null ? 1 : r.added), 0);
-  const ready = vs.state === 'ready';
+  const ready = kind === 'sealed' ? ss.state === 'ready' : vs.state === 'ready';
+  const lastSealed = sealedRows[0];
   const camOn = !!permission?.granted && focused && appActive && !!CardScannerView;
-  const status = camError ?? toast ?? (
-    vs.state === 'downloading' ? `Baixando o banco de cartas (só na 1ª vez)… ${Math.round((vs.progress ?? 0) * 100)}%`
+  const status = camError ?? toast ?? (kind === 'sealed'
+    ? ss.state === 'loading' ? `Baixando o banco de lacrados (só na 1ª vez)… ${Math.round((ss.progress ?? 0) * 100)}%`
+      : ss.state === 'idle' ? 'Preparando…' : ss.state === 'error' ? ss.error ?? 'Banco de lacrados indisponível' : null
+    : vs.state === 'downloading' ? `Baixando o banco de cartas (só na 1ª vez)… ${Math.round((vs.progress ?? 0) * 100)}%`
       : vs.state === 'checking' || vs.state === 'loading' || vs.state === 'idle' ? 'Preparando o reconhecimento…'
         : null);
 
@@ -300,10 +372,11 @@ export default function VisionScan({ onUseOcr }: { onUseOcr: () => void }) {
           <CardScannerView
             style={StyleSheet.absoluteFill}
             active
-            paused={!ready || showList || showAlts}
+            paused={!ready || showList || showAlts || showSealedAlts}
+            mode={kind}
             torch={torch}
-            minScore={vs.thresholds.min}
-            strongScore={vs.thresholds.strong}
+            minScore={kind === 'sealed' ? ss.thresholds.min : vs.thresholds.min}
+            strongScore={kind === 'sealed' ? ss.thresholds.strong : vs.thresholds.strong}
             onCard={onCard}
             onTrack={(e) => setTrack(e.nativeEvent.state)}
             onCameraReady={() => setCamError(null)}
@@ -313,6 +386,15 @@ export default function VisionScan({ onUseOcr }: { onUseOcr: () => void }) {
         <Pressable onPress={() => setTorch((v) => !v)} style={[styles.icon, { right: 10, backgroundColor: torch ? t.highlight : 'rgba(0,0,0,0.45)' }]}>
           <MaterialCommunityIcons name={torch ? 'flashlight' : 'flashlight-off'} size={20} color={torch ? t.highlightText : '#fff'} />
         </Pressable>
+        <View style={styles.kindBar}>
+          {(['cards', 'sealed'] as const).map((k) => (
+            <Pressable key={k} onPress={() => setKind(k)} style={[styles.kindBtn, kind === k && { backgroundColor: t.highlight }]}>
+              <Txt variant="small" color={kind === k ? t.highlightText : '#fff'} style={{ fontWeight: '800' }}>
+                {k === 'cards' ? 'Cartas' : 'Lacrados'}
+              </Txt>
+            </Pressable>
+          ))}
+        </View>
         <Pressable onPress={fromGallery} style={[styles.icon, { left: 10, backgroundColor: 'rgba(0,0,0,0.45)' }]}>
           {galleryBusy ? <ActivityIndicator color="#fff" size="small" /> : <MaterialCommunityIcons name="image-outline" size={20} color="#fff" />}
         </Pressable>
@@ -327,7 +409,50 @@ export default function VisionScan({ onUseOcr }: { onUseOcr: () => void }) {
 
       {/* Resultado */}
       <View style={styles.resultWrap}>
-        {vs.state === 'error' ? (
+        {kind === 'sealed' ? (
+          lastSealed ? (
+            <Animated.View style={{ transform: [{ scale: pop }] }}>
+              <View style={[styles.result, { backgroundColor: t.card, borderColor: t.border }]}>
+                <Image source={{ uri: lastSealed.product.image }} style={styles.prodImg} contentFit="contain" transition={120} />
+                <View style={{ flex: 1, gap: 3 }}>
+                  <Txt numberOfLines={3} style={{ fontWeight: '900', fontSize: 18, lineHeight: 22 }}>{lastSealed.product.name}</Txt>
+                  <Txt numberOfLines={1} style={{ fontWeight: '700', fontSize: 15, color: t.highlight }}>{lastSealed.product.type}</Txt>
+                  <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                    {(lastSealed.product.lang === 'JP' ? (['JP'] as SealedLang[]) : (['PT', 'EN'] as SealedLang[])).map((l) => (
+                      <Pressable key={l} hitSlop={6} onPress={() => l !== lastSealed.lang && replaceSealed(lastSealed, lastSealed.product, l)}
+                        style={[styles.langChip, { borderColor: l === lastSealed.lang ? t.highlight : t.border, backgroundColor: l === lastSealed.lang ? t.highlight : 'transparent' }]}>
+                        <Txt variant="small" color={l === lastSealed.lang ? t.highlightText : t.textSecondary} style={{ fontWeight: '800' }}>{LANG_LABEL[l]}</Txt>
+                      </Pressable>
+                    ))}
+                  </View>
+                  <Txt style={{ fontWeight: '900', fontSize: 20, color: t.up, marginTop: 2 }}>
+                    {sealedBRL(lastSealed.product.usd, fx) !== null ? `≈ ${brl(sealedBRL(lastSealed.product.usd, fx))}` : 'sem preço'}
+                  </Txt>
+                  {lastSealed.product.usd ? <Txt variant="small">mercado nos EUA (TCGplayer), convertido</Txt> : null}
+                  <View style={styles.links}>
+                    {lastSealed.itemId !== null ? (
+                      <Pressable hitSlop={8} onPress={() => undoSealed(lastSealed)}>
+                        <Txt variant="small" style={{ color: t.textSecondary, fontWeight: '700' }}>Desfazer</Txt>
+                      </Pressable>
+                    ) : <Txt variant="small">Não adicionado (só consulta)</Txt>}
+                    {lastSealed.alts.length ? (
+                      <Pressable hitSlop={8} onPress={() => setShowSealedAlts(true)}>
+                        <Txt variant="small" style={{ color: t.textSecondary, fontWeight: '700' }}>Não é esse?</Txt>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                </View>
+              </View>
+            </Animated.View>
+          ) : (
+            <View style={[styles.result, styles.empty, { borderColor: t.border }]}>
+              <MaterialCommunityIcons name="package-variant-closed" size={30} color={t.muted} />
+              <Txt variant="small" style={{ flex: 1 }}>
+                Aponte para a frente do produto lacrado (ETB, booster, box, blister, lata…). Em português, inglês ou japonês.
+              </Txt>
+            </View>
+          )
+        ) : vs.state === 'error' ? (
           <View style={[styles.result, { backgroundColor: t.card, borderColor: t.border, flexDirection: 'column', alignItems: 'stretch', gap: 8 }]}>
             <Txt style={{ fontWeight: '800' }}>Não consegui preparar o reconhecimento</Txt>
             <Txt variant="small">{vs.error}</Txt>
@@ -381,7 +506,15 @@ export default function VisionScan({ onUseOcr }: { onUseOcr: () => void }) {
             <Txt variant="small" style={{ flex: 1 }}>Aponte a câmera para uma carta. Ela aparece aqui assim que for reconhecida.</Txt>
           </View>
         )}
-        {rows.length ? (
+        {kind === 'sealed' && sealedRows.length ? (
+          <Pressable onPress={() => router.push('/sealed')} hitSlop={6} style={styles.session}>
+            <Txt variant="small">
+              {sealedRows.length} {sealedRows.length === 1 ? 'lacrado' : 'lacrados'} agora · ver meus lacrados
+            </Txt>
+            <MaterialCommunityIcons name="chevron-right" size={16} color={t.textSecondary} />
+          </Pressable>
+        ) : null}
+        {kind === 'cards' && rows.length ? (
           <Pressable onPress={() => setShowList(true)} hitSlop={6} style={styles.session}>
             <Txt variant="small">
               {count} {count === 1 ? 'carta' : 'cartas'} {prefs.mode === 'auto' ? 'adicionadas' : 'consultadas'} agora · {brl(total)}
@@ -390,6 +523,26 @@ export default function VisionScan({ onUseOcr }: { onUseOcr: () => void }) {
           </Pressable>
         ) : null}
       </View>
+
+      <Modal visible={showSealedAlts && !!lastSealed} animationType="slide" transparent onRequestClose={() => setShowSealedAlts(false)}>
+        <Pressable style={styles.backdrop} onPress={() => setShowSealedAlts(false)} />
+        <View style={[styles.sheet, { backgroundColor: t.card, paddingBottom: insets.bottom + 12 }]}>
+          <Txt variant="h2">Qual é o produto certo?</Txt>
+          <ScrollView contentContainerStyle={{ gap: 8 }}>
+            {lastSealed?.alts.map((a) => (
+              <Pressable key={a.id} onPress={() => replaceSealed(lastSealed, a, a.lang === 'JP' ? 'JP' : lastSealed.lang === 'JP' ? 'PT' : lastSealed.lang)}
+                style={[styles.altRow, { borderColor: t.border }]}>
+                <Image source={{ uri: a.image }} style={styles.thumb} contentFit="contain" />
+                <View style={{ flex: 1 }}>
+                  <Txt style={{ fontWeight: '800' }} numberOfLines={2}>{a.name}</Txt>
+                  <Txt variant="small" style={{ color: t.highlight }} numberOfLines={1}>{a.type} · {a.lang === 'JP' ? 'Japonês' : 'PT/EN'}</Txt>
+                </View>
+              </Pressable>
+            ))}
+          </ScrollView>
+          <Button title="Era esse mesmo" kind="secondary" onPress={() => setShowSealedAlts(false)} />
+        </View>
+      </Modal>
 
       {/* Outras possibilidades (só se a pessoa pedir) */}
       <Modal visible={showAlts && !!last} animationType="slide" transparent onRequestClose={() => setShowAlts(false)}>
@@ -463,6 +616,13 @@ const styles = StyleSheet.create({
     flex: 1, marginHorizontal: 16, marginTop: 10, borderRadius: 24, overflow: 'hidden', backgroundColor: '#000',
     borderWidth: 2,
   },
+  kindBar: {
+    position: 'absolute', top: 12, alignSelf: 'center', flexDirection: 'row', gap: 4, padding: 3,
+    borderRadius: 999, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 2,
+  },
+  kindBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 },
+  langChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 },
+  prodImg: { width: 96, height: 120, borderRadius: 6 },
   icon: { position: 'absolute', top: 10, width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
   status: {
     position: 'absolute', left: 12, right: 12, bottom: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',

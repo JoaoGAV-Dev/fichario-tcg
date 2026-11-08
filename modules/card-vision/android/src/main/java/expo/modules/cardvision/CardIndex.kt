@@ -13,11 +13,17 @@ import kotlin.math.sqrt
 /** Uma carta encontrada: id do TCGdex e semelhança (cosseno, 0..1). */
 data class Match(val id: String, val score: Float)
 
+/** Banco de cartas avulsas. */
+object CardIndex : VisionIndex()
+
+/** Banco de produtos lacrados (ETB, booster, box…). */
+object SealedIndex : VisionIndex()
+
 /**
- * Banco de cartas: modelo TFLite que gera a "impressão digital" (vetor de 256 números) de uma
- * imagem de carta, e os vetores de todas as cartas para comparar.
+ * Banco: modelo TFLite que gera a "impressão digital" (vetor de 256 números) de uma imagem,
+ * e os vetores de todos os itens para comparar. O tamanho da entrada vem do próprio modelo.
  */
-object CardIndex {
+open class VisionIndex {
   @Volatile var ready = false
     private set
   var version: String = ""
@@ -29,9 +35,13 @@ object CardIndex {
   private var dim = 256
   private var emb = FloatArray(0)
   private var ids: Array<String> = emptyArray()
-  private val inBuf: ByteBuffer =
-    ByteBuffer.allocateDirect(4 * CardDetector.W * CardDetector.H * 3).order(ByteOrder.nativeOrder())
-  private val pix = FloatArray(CardDetector.W * CardDetector.H * 3)
+  /** Largura e altura da imagem que o modelo espera. */
+  var inW = CardDetector.W
+    private set
+  var inH = CardDetector.H
+    private set
+  private var inBuf: ByteBuffer = ByteBuffer.allocateDirect(4 * inW * inH * 3).order(ByteOrder.nativeOrder())
+  private var pix = FloatArray(inW * inH * 3)
   private var out = Array(1) { FloatArray(256) }
 
   @Synchronized
@@ -49,6 +59,7 @@ object CardIndex {
     }
     val opts = Interpreter.Options().setNumThreads(4)
     val it = Interpreter(mapped, opts)
+    val inShape = it.getInputTensor(0).shape() // [1, H, W, 3]
     val outShape = it.getOutputTensor(0).shape()
     val outDim = outShape[outShape.size - 1]
     if (outDim != dim) throw IllegalStateException("Modelo devolve $outDim números, banco tem $dim")
@@ -60,11 +71,15 @@ object CardIndex {
     this.ids = idList.toTypedArray()
     this.count = n
     this.out = Array(1) { FloatArray(dim) }
+    this.inH = inShape[1]
+    this.inW = inShape[2]
+    this.inBuf = ByteBuffer.allocateDirect(4 * inW * inH * 3).order(ByteOrder.nativeOrder())
+    this.pix = FloatArray(inW * inH * 3)
     this.version = version
     ready = true
   }
 
-  /** Vetor normalizado de um recorte RGB W x H (CV_8UC3). */
+  /** Vetor normalizado de um recorte RGB inW x inH (CV_8UC3). */
   @Synchronized
   fun embed(rgb: Mat): FloatArray {
     val itp = interpreter ?: throw IllegalStateException("Banco de cartas não carregado")

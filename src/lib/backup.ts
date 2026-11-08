@@ -6,7 +6,7 @@ import * as Sharing from 'expo-sharing';
 import { emitDataChanged, getDb } from './db';
 import { todayBR } from './prices';
 
-const TABLES = ['cards', 'items', 'snapshots', 'meta'] as const;
+const TABLES = ['cards', 'items', 'snapshots', 'meta', 'sealed_items'] as const;
 
 export async function exportBackup(): Promise<void> {
   const db = await getDb();
@@ -30,7 +30,7 @@ export async function importBackup(): Promise<{ items: number; snapshots: number
   await db.withTransactionAsync(async () => {
     for (const t of TABLES) {
       for (const row of (json.data[t] ?? []) as Record<string, unknown>[]) {
-        const cols = Object.keys(row).filter((c) => !(t === 'items' && c === 'id'));
+        const cols = Object.keys(row).filter((c) => !((t === 'items' || t === 'sealed_items') && c === 'id'));
         if (!cols.length) continue;
         const sql = `INSERT OR REPLACE INTO ${t} (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`;
         await db.runAsync(sql, cols.map((c) => row[c] as string | number | null));

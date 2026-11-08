@@ -11,6 +11,8 @@ import { Button, ChangePill, Chip, Empty, HeroPanel, Loading, Panel, PriceChart,
 import { useTheme } from '@/hooks/use-theme';
 import { backfillCards, listCollection, ownedCards, type Item } from '@/lib/collection';
 import { onDataChanged } from '@/lib/db';
+import { listSealed, sealedBRL } from '@/lib/sealed';
+import { getFx } from '@/lib/sources/fast';
 import { brl, dateBR, pctLabel } from '@/lib/format';
 import { LigaStatus, useLiga } from '@/lib/liga';
 import { buildDashboard, holdingsOf, movers, pokedexGroups, valueSeries } from '@/lib/portfolio';
@@ -207,6 +209,9 @@ export default function Home() {
             </View>
             <Button title="Abrir outra coleção" icon="plus" kind="secondary" onPress={() => router.push('/sets')} />
 
+            {/* ---------------------------------------------------- lacrados */}
+            <SealedSummary />
+
             {/* ---------------------------------------------------- mais valiosas */}
             {dash.top.length ? (
               <Panel style={{ gap: 4 }}>
@@ -343,4 +348,37 @@ const styles = StyleSheet.create({
   thumb: { width: 40, height: 56, borderRadius: 4 },
   dexCard: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 14, padding: 10, gap: 2 },
   dexImg: { width: '100%', height: 90, borderRadius: 8, marginBottom: 6 },
+});
+
+/** Atalho para "Meus lacrados" (ETB, booster, box…), com quantidade e valor estimado. */
+function SealedSummary() {
+  const t = useTheme();
+  const [info, setInfo] = useState<{ n: number; value: number } | null>(null);
+  const load = useCallback(() => {
+    Promise.all([listSealed(), getFx()]).then(([items, fx]) => {
+      const n = items.reduce((a, i) => a + i.quantity, 0);
+      const value = items.reduce((a, i) => a + (sealedBRL(i.usd, fx?.USD ?? null) ?? 0) * i.quantity, 0);
+      setInfo({ n, value });
+    }).catch(() => {});
+  }, []);
+  useFocusEffect(load);
+  useEffect(() => onDataChanged(load), [load]);
+  return (
+    <Pressable onPress={() => router.push('/sealed')}>
+      <View style={[sealedStyles.box, { backgroundColor: t.card, borderColor: t.border }]}>
+        <MaterialCommunityIcons name="package-variant-closed" size={28} color={t.highlight} />
+        <View style={{ flex: 1 }}>
+          <Txt style={{ fontWeight: '800' }}>Meus lacrados</Txt>
+          <Txt variant="small">
+            {info?.n ? `${info.n} ${info.n === 1 ? 'produto' : 'produtos'} · ≈ ${brl(info.value)}` : 'ETB, booster, box, blister… escaneie em “Lacrados”'}
+          </Txt>
+        </View>
+        <MaterialCommunityIcons name="chevron-right" size={22} color={t.textSecondary} />
+      </View>
+    </Pressable>
+  );
+}
+
+const sealedStyles = StyleSheet.create({
+  box: { flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, padding: 14 },
 });

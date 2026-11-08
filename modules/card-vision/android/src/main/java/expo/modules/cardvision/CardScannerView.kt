@@ -73,6 +73,15 @@ class CardScannerView(context: Context, appContext: AppContext) : ExpoView(conte
     set(v) {
       field = v; camera?.cameraControl?.enableTorch(v)
     }
+  /** "cards" (cartas avulsas) ou "sealed" (produtos lacrados). */
+  @Volatile var mode = "cards"
+    set(v) {
+      if (field != v) {
+        field = v
+        resetTracking = true
+      }
+    }
+  @Volatile private var resetTracking = false
   @Volatile var minScore = 0.80f
   @Volatile var strongScore = 0.90f
 
@@ -272,20 +281,32 @@ class CardScannerView(context: Context, appContext: AppContext) : ExpoView(conte
   private fun analyze(image: ImageProxy) {
     try {
       if (!CardDetector.ensureLoaded()) return
+      if (resetTracking) {
+        resetTracking = false
+        lastEmitted = null
+        lastCard = null
+        history.clear()
+      }
       val frame = toMat(image)
       val fw = frame.cols()
       val fh = frame.rows()
-      val quads = CardDetector.candidates(frame, 5)
+      val sealed = mode == "sealed"
+      val quads = if (sealed) emptyList() else CardDetector.candidates(frame, 5)
       val now = SystemClock.elapsedRealtime()
       var result: FrameMatch? = null
-      val interval = if (lastEmitted != null) 300L else 0L
-      if (!paused && CardIndex.ready && now - lastRecognize >= interval) {
+      val interval = if (lastEmitted != null) 300L else if (sealed) 150L else 0L
+      val ready = if (sealed) SealedIndex.ready else CardIndex.ready
+      if (!paused && ready && now - lastRecognize >= interval) {
         // fichário/sleeve: a borda achada muitas vezes é o bolso ou a arte; testa várias + o recorte central
-        result = CardRecognizer.recognize(frame, quads, true, 4, minScore, strongScore)
+        result = if (sealed) SealedRecognizer.recognize(frame, strongScore)
+        else CardRecognizer.recognize(frame, quads, true, 4, minScore, strongScore)
         lastRecognize = now
       }
-      frame.release()
-      handle(quads, result, fw, fh, now)
+      try {
+        handle(quads, result, fw, fh, now, frame)
+      } finally {
+        frame.release()
+      }
     } catch (e: Throwable) {
       Log.e(TAG, "análise", e)
     } finally {
@@ -293,7 +314,7 @@ class CardScannerView(context: Context, appContext: AppContext) : ExpoView(conte
     }
   }
 
-  private fun handle(quads: List<Array<Point>>, result: FrameMatch?, fw: Int, fh: Int, now: Long) {
+  private fun handle(quads: List<Array<Point>>, result: FrameMatch?, fw: Int, fh: Int, now: Long, frame: Mat) {
     val good = result != null && result.top.score >= minScore
     val shown: Array<Point>? = if (good) result!!.quad else quads.firstOrNull()
     val present = quads.isNotEmpty() || (good && result!!.guide)
@@ -321,7 +342,7 @@ class CardScannerView(context: Context, appContext: AppContext) : ExpoView(conte
           val near = result.matches.filter { it.score >= top.score - 0.05f }.map { it.id }.toSet() + top.id
           lastEmitted = Emitted(near, now)
           lastCard = lastEmitted
-          emitCard(result)
+          emitCard(result, if (mode == "sealed") SealedRecognizer.detectLanguage(frame, result.quad) else null)
         } else if (le != null) {
           lastEmitted = Emitted(le.ids + result.matches.filter { it.score >= top.score - 0.03f }.map { it.id }, le.at)
         }
@@ -350,8 +371,10 @@ class CardScannerView(context: Context, appContext: AppContext) : ExpoView(conte
     }
   }
 
-  private fun emitCard(r: FrameMatch) {
+  private fun emitCard(r: FrameMatch, lang: String?) {
     val payload = mapOf(
+      "kind" to mode,
+      "lang" to (lang ?: ""),
       "id" to r.top.id,
       "score" to r.top.score.toDouble(),
       "guide" to r.guide,

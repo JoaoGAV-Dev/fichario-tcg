@@ -44,7 +44,7 @@ object CardDetector {
     return arrayOf(tl, tr, br, bl)
   }
 
-  private fun dist(a: Point, b: Point) = hypot(a.x - b.x, a.y - b.y)
+  fun dist(a: Point, b: Point) = hypot(a.x - b.x, a.y - b.y)
 
   fun quadHeight(q: Array<Point>) = (dist(q[3], q[0]) + dist(q[2], q[1])) / 2
 
@@ -182,14 +182,14 @@ object CardDetector {
     return arrayOf(Point(x0, y0), Point(x0 + w, y0), Point(x0 + w, y0 + h), Point(x0, y0 + h))
   }
 
-  /** Recorte endireitado W x H em RGB (CV_8UC3). */
-  fun warp(src: Mat, quad: Array<Point>, rotate180: Boolean = false): Mat {
+  /** Recorte endireitado outW x outH em RGB (CV_8UC3). */
+  fun warp(src: Mat, quad: Array<Point>, rotate180: Boolean = false, outW: Int = W, outH: Int = H): Mat {
     var img = src
     var q = quad
-    val qh = quadHeight(q)
+    val qh = max(quadHeight(q), (dist(q[1], q[0]) + dist(q[2], q[3])) / 2 * outH / outW)
     var scaled: Mat? = null
-    if (qh > 1.6 * H) {
-      val f = 1.2 * H / qh
+    if (qh > 1.6 * outH) {
+      val f = 1.2 * outH / qh
       scaled = Mat()
       Imgproc.resize(
         src, scaled,
@@ -201,11 +201,11 @@ object CardDetector {
     }
     val srcPts = MatOfPoint2f(*q)
     val dstPts = MatOfPoint2f(
-      Point(0.0, 0.0), Point(W - 1.0, 0.0), Point(W - 1.0, H - 1.0), Point(0.0, H - 1.0)
+      Point(0.0, 0.0), Point(outW - 1.0, 0.0), Point(outW - 1.0, outH - 1.0), Point(0.0, outH - 1.0)
     )
     val m = Imgproc.getPerspectiveTransform(srcPts, dstPts)
     val out = Mat()
-    Imgproc.warpPerspective(img, out, m, Size(W.toDouble(), H.toDouble()), Imgproc.INTER_LINEAR, Core.BORDER_REPLICATE)
+    Imgproc.warpPerspective(img, out, m, Size(outW.toDouble(), outH.toDouble()), Imgproc.INTER_LINEAR, Core.BORDER_REPLICATE)
     srcPts.release(); dstPts.release(); m.release(); scaled?.release()
     val rgb = Mat()
     if (out.channels() == 4) Imgproc.cvtColor(out, rgb, Imgproc.COLOR_RGBA2RGB) else out.copyTo(rgb)

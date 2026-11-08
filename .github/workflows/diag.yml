@@ -67,12 +67,18 @@ jobs:
             adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://set/me06?name=Reinado%20Delta" com.seunome.fichariotcg || true
             sleep 20
             adb exec-out screencap -p > diag/23-me06.png || true
+            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://scan?kind=sealed" com.seunome.fichariotcg || true
+            sleep 40
+            adb exec-out screencap -p > diag/25-lacrados.png || true
+            adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://sealed" com.seunome.fichariotcg || true
+            sleep 8
+            adb exec-out screencap -p > diag/26-meus-lacrados.png || true
             adb shell am start -W -a android.intent.action.VIEW -d "fichariotcg://sets" com.seunome.fichariotcg || true
             sleep 15
             adb exec-out screencap -p > diag/24-explorar.png || true
             (adb shell pidof com.seunome.fichariotcg && echo "APP RODANDO") > diag/status.txt || echo "APP FECHOU" > diag/status.txt
             adb logcat -d > diag/logcat-completo.txt
-            grep -E "ReactNativeJS|AndroidRuntime|FATAL" diag/logcat-completo.txt > diag/logcat-app.txt || true
+            grep -E "ReactNativeJS|AndroidRuntime|FATAL|CardVision" diag/logcat-completo.txt > diag/logcat-app.txt || true
       - name: Publicar diagnóstico
         if: always()
         uses: softprops/action-gh-release@v2

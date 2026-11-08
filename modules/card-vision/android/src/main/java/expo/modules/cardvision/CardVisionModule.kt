@@ -24,27 +24,31 @@ class CardVisionModule : Module() {
 
     Function("isAvailable") { true }
 
-    Function("indexInfo") {
-      mapOf("ready" to CardIndex.ready, "count" to CardIndex.count, "version" to CardIndex.version)
+    Function("indexInfo") { kind: String? ->
+      val ix = indexOf(kind)
+      mapOf("ready" to ix.ready, "count" to ix.count, "version" to ix.version)
     }
 
-    AsyncFunction("loadIndexAsync") { model: String, emb: String, ids: String, dim: Int, version: String ->
+    AsyncFunction("loadIndexAsync") { model: String, emb: String, ids: String, dim: Int, version: String, kind: String? ->
       if (!CardDetector.ensureLoaded()) throw CodedException("ERR_OPENCV", "OpenCV não carregou", null)
-      CardIndex.load(toFile(model), toFile(emb), toFile(ids), dim, version)
-      CardIndex.count
+      val ix = indexOf(kind)
+      ix.load(toFile(model), toFile(emb), toFile(ids), dim, version)
+      ix.count
     }
 
-    AsyncFunction("recognizeImageAsync") { uri: String ->
+    AsyncFunction("recognizeImageAsync") { uri: String, kind: String? ->
       val ctx = appContext.reactContext ?: throw CodedException("ERR_CONTEXT", "Contexto indisponível", null)
       if (!CardDetector.ensureLoaded()) throw CodedException("ERR_OPENCV", "OpenCV não carregou", null)
-      if (!CardIndex.ready) throw CodedException("ERR_INDEX", "Banco de cartas ainda não carregado", null)
+      val sealed = kind == "sealed"
+      if (!indexOf(kind).ready) throw CodedException("ERR_INDEX", "Banco ainda não carregado", null)
       val bmp = loadBitmap(ctx, Uri.parse(uri), 1600)
       val mat = Mat()
       Utils.bitmapToMat(bmp, mat)
       bmp.recycle()
       val t0 = System.currentTimeMillis()
-      val quads = CardDetector.candidates(mat, 3)
-      val r = CardRecognizer.recognize(mat, quads, true, 4, 0.8f)
+      val quads = if (sealed) emptyList() else CardDetector.candidates(mat, 5)
+      val r = if (sealed) SealedRecognizer.recognize(mat, 2f) else CardRecognizer.recognize(mat, quads, true, 4, 0.8f)
+      val lang = if (sealed && r != null) SealedRecognizer.detectLanguage(mat, r.quad) else null
       val w = mat.cols()
       val h = mat.rows()
       mat.release()
@@ -53,6 +57,7 @@ class CardVisionModule : Module() {
       } else {
         mapOf(
           "id" to r.top.id,
+          "lang" to (lang ?: ""),
           "score" to r.top.score.toDouble(),
           "guide" to r.guide,
           "candidates" to quads.size,
@@ -68,6 +73,7 @@ class CardVisionModule : Module() {
 
       Prop("active") { view: CardScannerView, v: Boolean -> view.active = v }
       Prop("paused") { view: CardScannerView, v: Boolean -> view.paused = v }
+      Prop("mode") { view: CardScannerView, v: String -> view.mode = v }
       Prop("zoom") { view: CardScannerView, v: Double -> view.zoom = v.toFloat() }
       Prop("torch") { view: CardScannerView, v: Boolean -> view.torch = v }
       Prop("minScore") { view: CardScannerView, v: Double -> view.minScore = v.toFloat() }
@@ -76,6 +82,8 @@ class CardVisionModule : Module() {
       OnViewDestroys { view: CardScannerView -> view.release() }
     }
   }
+
+  private fun indexOf(kind: String?): VisionIndex = if (kind == "sealed") SealedIndex else CardIndex
 
   private fun toFile(p: String): File = File(if (p.startsWith("file:")) Uri.parse(p).path!! else p)
 
