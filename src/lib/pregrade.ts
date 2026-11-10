@@ -59,7 +59,7 @@ function wearCap(levels: WearLevel[]): number {
 
 function photoWarnings(r: AssessResult, side: string): string[] {
   const w: string[] = [];
-  if (!r.ok) return [`${side}: não achei a carta. Use um fundo liso que contraste com a borda e deixe um espaço em volta.`];
+  if (!r.ok) return [`${side}: não achei a carta. Use um fundo liso e escuro e deixe um pouco de espaço em volta.`];
   if (r.cardPx < 1100) w.push(`${side}: chegue mais perto — a carta deve ocupar quase toda a altura da foto.`);
   if (r.tilt > 0.04) w.push(`${side}: o celular estava inclinado; fotografe bem de cima, paralelo à carta.`);
   if (Math.abs(r.aspect / (88 / 63) - 1) > 0.04) w.push(`${side}: a borda achada não parece a da carta inteira — confira na imagem.`);

@@ -138,7 +138,7 @@ export default function GradeScreen() {
           {tips ? (
             <>
               <Txt variant="small">1. Tire do sleeve/toploader (o plástico esconde os defeitos).</Txt>
-              <Txt variant="small">2. Fundo liso que contraste: escuro para a frente, claro (folha branca) para o verso.</Txt>
+              <Txt variant="small">2. Fundo liso e escuro (preto ou cinza-escuro) para frente e verso — fundo branco se confunde com o desgaste.</Txt>
               <Txt variant="small">3. Luz difusa, sem flash e sem reflexo na borda.</Txt>
               <Txt variant="small">4. Celular paralelo à carta, bem de cima; a carta ocupando quase toda a altura, com um pouco de fundo em volta.</Txt>
             </>
@@ -172,7 +172,7 @@ export default function GradeScreen() {
                   </View>
                 </View>
               ) : r && !r.ok ? (
-                <Txt variant="small" style={{ color: t.down }}>Não achei a carta. Use fundo liso que contraste com a borda e deixe espaço em volta.</Txt>
+                <Txt variant="small" style={{ color: t.down }}>Não achei a carta. Use fundo liso e escuro e deixe um pouco de espaço em volta.</Txt>
               ) : (
                 <Txt variant="small">Foto {side === 'front' ? 'da frente' : 'do verso'} da carta, fora do sleeve.</Txt>
               )}
