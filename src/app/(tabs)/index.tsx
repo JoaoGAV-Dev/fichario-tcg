@@ -227,6 +227,16 @@ export default function Home() {
                 <MaterialCommunityIcons name="chevron-right" size={22} color={t.textSecondary} />
               </View>
             </Pressable>
+            <Pressable onPress={() => router.push('/grade')}>
+              <View style={[sealedStyles.box, { backgroundColor: t.card, borderColor: t.border }]}>
+                <MaterialCommunityIcons name="magnify-scan" size={28} color={t.highlight} />
+                <View style={{ flex: 1 }}>
+                  <Txt style={{ fontWeight: '800' }}>Avaliar para graduar</Txt>
+                  <Txt variant="small">Fotos da frente e do verso: centralização, cantos e bordas, e se vale a pena</Txt>
+                </View>
+                <MaterialCommunityIcons name="chevron-right" size={22} color={t.textSecondary} />
+              </View>
+            </Pressable>
 
             {/* ---------------------------------------------------- mais valiosas */}
             {dash.top.length ? (

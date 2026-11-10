@@ -62,6 +62,7 @@ export default function RootLayout() {
               <Stack.Screen name="card/[id]" options={{ title: 'Carta' }} />
               <Stack.Screen name="search" options={{ title: 'Buscar carta' }} />
               <Stack.Screen name="check" options={{ title: 'Conferir preço' }} />
+              <Stack.Screen name="grade" options={{ title: 'Avaliar para graduar' }} />
               <Stack.Screen name="pokemon/[dex]" options={{ title: 'Pokémon' }} />
             </Stack>
           </LigaProvider>

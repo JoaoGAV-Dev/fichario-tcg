@@ -68,6 +68,25 @@ class CardVisionModule : Module() {
       }
     }
 
+    // Pré-avaliação para graduação: centralização, cantos/bordas e riscos (verso)
+    AsyncFunction("assessCardAsync") { uri: String, side: String ->
+      val ctx = appContext.reactContext ?: throw CodedException("ERR_CONTEXT", "Contexto indisponível", null)
+      if (!CardDetector.ensureLoaded()) throw CodedException("ERR_OPENCV", "OpenCV não carregou", null)
+      val bmp = loadBitmap(ctx, Uri.parse(uri), 3200)
+      val mat = Mat()
+      Utils.bitmapToMat(bmp, mat)
+      bmp.recycle()
+      val t0 = System.currentTimeMillis()
+      val dir = File(ctx.cacheDir, "grade").apply { mkdirs() }
+      dir.listFiles()?.filter { System.currentTimeMillis() - it.lastModified() > 3_600_000 }?.forEach { it.delete() }
+      try {
+        CardGrader.assess(mat, side, File(dir, "$side-${System.currentTimeMillis()}.jpg")) +
+          mapOf("ms" to (System.currentTimeMillis() - t0).toInt(), "photoW" to mat.cols(), "photoH" to mat.rows())
+      } finally {
+        mat.release()
+      }
+    }
+
     // Conferir preço: foto ou print (anúncio, slab, lacrado). Tenta carta e lacrado, e lê o texto da imagem.
     AsyncFunction("analyzeImageAsync") { uri: String, cardStrong: Double, sealedStrong: Double ->
       val ctx = appContext.reactContext ?: throw CodedException("ERR_CONTEXT", "Contexto indisponível", null)

@@ -44,6 +44,37 @@ export interface AnalyzeResult {
   text: string;
   ms: number;
 }
+export interface AssessRegion {
+  /** corner_tl | corner_tr | corner_br | corner_bl | edge_left | edge_right | edge_top | edge_bottom */
+  name: string;
+  corner: boolean;
+  /** maior mancha branca (mm) e quantas */
+  mm: number;
+  count: number;
+}
+export interface AssessResult {
+  ok: boolean;
+  error?: 'nocard';
+  side: 'front' | 'back';
+  /** largura da moldura em mm (null = não deu para medir) */
+  borders: { left: number | null; right: number | null; top: number | null; bottom: number | null };
+  /** lado maior / soma, em % (ex.: 58 = 58/42) */
+  lr: number | null;
+  tb: number | null;
+  /** moldura colorida (amarela/azul): o branco do desgaste aparece; prateada não dá para avaliar */
+  colored: boolean;
+  /** fração da borda com reflexo de luz */
+  glare: number;
+  regions: AssessRegion[];
+  scratches: number;
+  /** altura da carta na foto (px), proporção e inclinação */
+  cardPx: number;
+  aspect: number;
+  tilt: number;
+  /** imagem anotada (file://) */
+  image: string;
+  ms: number;
+}
 export type TrackState = 'searching' | 'tracking' | 'recognized';
 
 interface CardVisionNative {
@@ -52,6 +83,7 @@ interface CardVisionNative {
   loadIndexAsync(model: string, emb: string, ids: string, dim: number, version: string, kind?: VisionKind): Promise<number>;
   recognizeImageAsync(uri: string, kind?: VisionKind): Promise<ImageResult>;
   analyzeImageAsync?(uri: string, cardStrong: number, sealedStrong: number): Promise<AnalyzeResult>;
+  assessCardAsync?(uri: string, side: 'front' | 'back'): Promise<AssessResult>;
 }
 
 // Só existe no APK Android (no Expo Go / iOS cai no OCR antigo).
@@ -99,4 +131,10 @@ export const CardScannerView: React.ComponentType<CardScannerProps> | null = Nat
 export function analyzeImageAsync(uri: string, cardStrong: number, sealedStrong: number): Promise<AnalyzeResult> {
   if (!Native?.analyzeImageAsync) throw new Error('Atualize o app para conferir preço por foto');
   return Native.analyzeImageAsync(uri, cardStrong, sealedStrong);
+}
+
+/** Pré-avaliação para graduação de uma foto (frente ou verso, fora do sleeve). */
+export function assessCardAsync(uri: string, side: 'front' | 'back'): Promise<AssessResult> {
+  if (!Native?.assessCardAsync) throw new Error('Atualize o app para avaliar cartas');
+  return Native.assessCardAsync(uri, side);
 }

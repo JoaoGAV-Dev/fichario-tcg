@@ -1,5 +1,5 @@
 import { Image } from 'expo-image';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
@@ -166,6 +166,9 @@ export default function CardScreen() {
             <Button title="Adicionar" onPress={add} loading={busy === 'add'} />
           </View>
         </Panel>
+
+        <Button title="Avaliar para graduar" icon="magnify-scan" kind="secondary"
+          onPress={() => router.push({ pathname: '/grade', params: { id } })} />
 
         {/* ------------------------------------------------ preços atuais */}
         <Panel style={{ gap: 12 }}>
